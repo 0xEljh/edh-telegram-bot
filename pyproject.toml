@@ -1,0 +1,23 @@
+[tool.poetry]
+name = "edh-telegram-bot"
+version = "0.1.0"
+description = "A telegram bot to track wins/points in your EDH pods"
+authors = ["0xEljh <elijah@0xEljh.com>"]
+license = "MIT"
+readme = "README.md"
+
+[tool.poetry]
+packages = [{include = "telegram_bot"}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+python-telegram-bot = "^20.7"
+python-dotenv = "^1.0.0"
+
+[tool.poetry.group.dev.dependencies]
+black = "^23.7.0"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
