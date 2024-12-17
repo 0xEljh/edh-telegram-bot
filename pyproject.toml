@@ -5,8 +5,6 @@ description = "A telegram bot to track wins/points in your EDH pods"
 authors = ["0xEljh <elijah@0xEljh.com>"]
 license = "MIT"
 readme = "README.md"
-
-[tool.poetry]
 packages = [{include = "telegram_bot"}]
 
 [tool.poetry.dependencies]
