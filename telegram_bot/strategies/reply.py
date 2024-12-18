@@ -52,6 +52,7 @@ class PlayerProfileReply(ReplyStrategy):
         if not update.effective_user:
             await self._send_message(update, context, "Could not identify user.", None)
             return
+        user_name = update.effective_user.first_name
 
         player = self.game_manager.get_player(update.effective_user.id)
         if not player:
@@ -73,7 +74,7 @@ class PlayerProfileReply(ReplyStrategy):
         )
 
         message = (
-            f"🎮 <b>Player Profile for {player.name}</b>\n\n"
+            f"🎮 <b>Player Profile for {user_name} aka {player.name}</b>\n\n"
             f"📊 <b>Statistics:</b>\n"
             f"• Games Played: {player.games_played}\n"
             f"• Wins: {player.wins}\n"

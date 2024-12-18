@@ -55,7 +55,7 @@ class Game:
     dev note: may want to represent telegram_id as a string instead of an int
     """
 
-    game_id: str
+    game_id: int
     created_at: datetime
     players: Dict[int, str] = field(default_factory=dict)  # telegram_id -> name mapping
     outcomes: Dict[int, GameOutcome] = field(default_factory=dict)
@@ -109,7 +109,7 @@ class Game:
     def from_dict(cls, data: dict) -> "Game":
         """Create a Game instance from a dictionary."""
         return cls(
-            game_id=data["game_id"],
+            game_id=int(data["game_id"]),
             created_at=datetime.fromisoformat(data["created_at"]),
             players={int(tid): name for tid, name in data["players"].items()},
             outcomes={
@@ -151,7 +151,7 @@ class Game:
             summary.append(f"  ☠️ {eliminated_name} was eliminated by {eliminator_name}")
 
         summary.append("\n")
-        summary.append(f"Created on: {self.created_at.strftime('%d/%m/%Y')}")
+        summary.append(f"Created at: {self.created_at.strftime('%Y-%m-%d %H:%M')}")
         # summary.append(f"Finalized: {'Yes' if self.finalized else 'No'}")
         return "\n".join(summary)
 
@@ -161,14 +161,18 @@ class GameManager:
 
     def __init__(self, data_file: str = "edh_games.json"):
         self.data_file = data_file
-        self.games: Dict[str, Game] = {}
+        self.games: Dict[int, Game] = {}
         self.players: Dict[int, PlayerStats] = {}
         self.load_from_file()
 
-    def create_game(self, game_id: Optional[str] = None) -> Game:
+    def create_game(self, game_id: Optional[int] = None) -> Game:
         """Create a new game with an optional ID."""
         if game_id is None:
-            game_id = f"game_{len(self.games) + 1}"
+            # Find the next available game ID
+            game_id = 0
+            while game_id in self.games:
+                game_id += 1
+                
         if game_id in self.games:
             raise ValueError(f"Game with ID {game_id} already exists")
 
@@ -246,7 +250,7 @@ class GameManager:
         # TODO may want to drop all unfinalized games here
 
         self.games = {
-            gid: Game.from_dict(game_data)
+            int(gid): Game.from_dict(game_data)
             for gid, game_data in data.get("games", {}).items()
         }
 

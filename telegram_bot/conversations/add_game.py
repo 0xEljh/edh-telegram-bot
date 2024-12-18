@@ -112,6 +112,35 @@ def create_game_conversation(game_manager: GameManager) -> ConversationHandler:
             game.finalize()
             game_manager.add_game(game)
             await update.message.reply_text("👍 Game has been finalized and saved.")
+
+            # Broadcast the game summary to all players
+            for player_id in game.players.keys():
+                try:
+                    outcome = game.outcomes[player_id]
+                    # outcome_emoji = "🏆" if outcome == GameOutcome.WIN else "💀" if outcome == GameOutcome.LOSE else "🤝"
+                    outcome_verb = (
+                        "VICTORIOUS"
+                        if outcome == GameOutcome.WIN
+                        else (
+                            "DEFEATED"
+                            if outcome == GameOutcome.LOSE
+                            else "(what happened?)"
+                        )
+                    )
+                    player_personal_message = (
+                        f"📢 You were {outcome_verb} in a recent match!"
+                    )
+
+                    await context.bot.send_message(
+                        chat_id=player_id,
+                        text=f"{player_personal_message}\n\n{str(game)}",
+                    )
+                except Exception as e:
+                    # Log error but continue with other players if one fails
+                    print(
+                        f"Failed to send game summary to player {player_id}: {str(e)}"
+                    )
+
             return ConversationHandler.END
         elif text == "cancel":
             await update.message.reply_text("❌ Game has been discarded.")
