@@ -5,7 +5,7 @@ from datetime import datetime
 
 from telegram_bot.models import GameManager, Game, ReplyStrategy
 
-GAMES_PER_PAGE = 5
+GAMES_PER_PAGE = 3
 PAGE_PREFIX = "page_"
 
 
@@ -119,20 +119,7 @@ class GameHistoryReply(ReplyStrategy):
         return InlineKeyboardMarkup([buttons]) if buttons else None
 
     def _format_game_entry(self, game: Game, player_id: int) -> str:
-        """Format a single game entry."""
-        outcome = game.outcomes.get(player_id)
-        eliminations = game.eliminations.get(player_id, 0)
-        other_players = [name for tid, name in game.players.items() if tid != player_id]
-
-        date = datetime.fromisoformat(game.created_at.isoformat())
-        date_str = date.strftime("%Y-%m-%d %H:%M")
-
-        return (
-            f"🎲 <b>Game {game.game_id}</b> ({date_str})\n"
-            f"• Outcome: {outcome.value.upper() if outcome else 'Unknown'}\n"
-            f"• Eliminations: {eliminations}\n"
-            f"• Other players: {', '.join(other_players)}\n"
-        )
+        return f"---\n\n{str(game)}\n\n"
 
     async def execute(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Display the player's game history."""

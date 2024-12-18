@@ -151,8 +151,8 @@ class Game:
             summary.append(f"  ☠️ {eliminated_name} was eliminated by {eliminator_name}")
 
         summary.append("\n")
-        summary.append(f"Created at: {self.created_at.strftime('%d/%m/%Y')}")
-        summary.append(f"Finalized: {'Yes' if self.finalized else 'No'}")
+        summary.append(f"Created on: {self.created_at.strftime('%d/%m/%Y')}")
+        # summary.append(f"Finalized: {'Yes' if self.finalized else 'No'}")
         return "\n".join(summary)
 
 
@@ -243,7 +243,7 @@ class GameManager:
         with open(self.data_file, "r") as f:
             data = json.load(f)
 
-        # may want to drop all unfinalized games here
+        # TODO may want to drop all unfinalized games here
 
         self.games = {
             gid: Game.from_dict(game_data)
