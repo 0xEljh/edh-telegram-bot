@@ -65,7 +65,8 @@ def create_game_conversation(game_manager: GameManager) -> ConversationHandler:
         query = update.callback_query
         await query.answer()
 
-        outcome = GameOutcome(query.data.split(":")[2])
+        outcome = GameOutcome(query.data.split(":")[2].lower())
+
         game = context.user_data["current_game"]
         current_player_id = context.user_data["current_player_id"]
         game.record_outcome(current_player_id, outcome)
@@ -96,7 +97,12 @@ def create_game_conversation(game_manager: GameManager) -> ConversationHandler:
         eliminated_id = int(query.data.split(":")[1])
         game = context.user_data["current_game"]
         current_player_id = context.user_data["current_player_id"]
-        game.record_outcome(eliminated_id, GameOutcome.LOSE)
+
+        # Dev note: this is NOT a useful constraint due to kingdom/role games
+        # Only change the outcome to LOSE if it wasn't already set to DRAW
+        # if game.outcomes.get(eliminated_id) != GameOutcome.DRAW:
+        #     game.record_outcome(eliminated_id, GameOutcome.LOSE)
+
         game.eliminations[eliminated_id] = current_player_id
         context.user_data["eliminated_players"].append(eliminated_id)
         return await EliminationSelectionHandler(update, context)
@@ -143,10 +149,30 @@ def create_game_conversation(game_manager: GameManager) -> ConversationHandler:
 
             return ConversationHandler.END
         elif text == "cancel":
+            _reset_user_data(context)
             await update.message.reply_text("❌ Game has been discarded.")
             return ConversationHandler.END
         else:
             return await GameSummaryHandler(update, context)
+
+    async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Cancel the current game creation process."""
+        _reset_user_data(context)
+
+        await update.message.reply_text(
+            "❌ Game creation cancelled. Use /game to start a new game."
+        )
+        return ConversationHandler.END
+
+    def _reset_user_data(context: ContextTypes.DEFAULT_TYPE) -> None:
+        if "current_game" in context.user_data:
+            del context.user_data["current_game"]
+        if "added_players" in context.user_data:
+            del context.user_data["added_players"]
+        if "eliminated_players" in context.user_data:
+            del context.user_data["eliminated_players"]
+        if "current_player_id" in context.user_data:
+            del context.user_data["current_player_id"]
 
     # Create handlers with strategies
     PlayerSelectionHandler = UnitHandler(
@@ -191,5 +217,5 @@ def create_game_conversation(game_manager: GameManager) -> ConversationHandler:
                 ),
             ],
         },
-        fallbacks=[],
+        fallbacks=[CommandHandler("cancel", cancel_command)],
     )

@@ -172,13 +172,12 @@ class GameManager:
             game_id = 0
             while game_id in self.games:
                 game_id += 1
-                
+
         if game_id in self.games:
             raise ValueError(f"Game with ID {game_id} already exists")
 
-        game = Game(game_id=game_id, created_at=datetime.now())
-        self.games[game_id] = game
-        return game
+        # Create game but don't store it in self.games until it's finalized
+        return Game(game_id=game_id, created_at=datetime.now())
 
     def add_game(self, game: Game) -> None:
         """Add a completed game and update player statistics."""
@@ -218,7 +217,11 @@ class GameManager:
     def save_to_file(self) -> None:
         """Save all games and player statistics to file."""
         data = {
-            "games": {gid: game.to_dict() for gid, game in self.games.items()},
+            "games": {
+                gid: game.to_dict()
+                for gid, game in self.games.items()
+                if game.finalized
+            },
             "players": {
                 tid: {
                     "telegram_id": p.telegram_id,
@@ -247,11 +250,10 @@ class GameManager:
         with open(self.data_file, "r") as f:
             data = json.load(f)
 
-        # TODO may want to drop all unfinalized games here
-
         self.games = {
             int(gid): Game.from_dict(game_data)
             for gid, game_data in data.get("games", {}).items()
+            if game_data.get("finalized", False)
         }
 
         self.players = {

@@ -55,12 +55,6 @@ class PlayerSelectionReply(ReplyStrategy):
                 "Select more players or press Done:"
             )
 
-        # if update.callback_query:
-        #     await update.callback_query.edit_message_text(
-        #         text=message, reply_markup=keyboard
-        #     )
-        # else:
-        #     await update.message.reply_text(text=message, reply_markup=keyboard)
         await self._send_message(
             update,
             context,
@@ -124,15 +118,14 @@ class EliminationSelectionReply(ReplyStrategy):
         """Create keyboard with available players for elimination."""
         keyboard = []
         for pid in available_players:
-            if pid != current_player_id:  # Don't show current player
-                keyboard.append(
-                    [
-                        InlineKeyboardButton(
-                            self.game_manager.players[pid].name,
-                            callback_data=f"eliminate:{pid}",
-                        )
-                    ]
-                )
+            keyboard.append(
+                [
+                    InlineKeyboardButton(
+                        self.game_manager.players[pid].name,
+                        callback_data=f"eliminate:{pid}",
+                    )
+                ]
+            )
         keyboard.append(
             [InlineKeyboardButton("✅ Done", callback_data="done_eliminations")]
         )

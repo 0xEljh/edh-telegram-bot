@@ -21,6 +21,7 @@ def create_start_handler() -> CommandHandler:
         "📊 /history - View your game history\n"
         "   ↳ Bask in previous glory or remember grievances\n\n"
         "Ready to begin? Start by setting up your /profile!"
+        "Stuck? Use /cancel to exit any conversation and then try again."
     )
 
     async def start(update: Update, context):
