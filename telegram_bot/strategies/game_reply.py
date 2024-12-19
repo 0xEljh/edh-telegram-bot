@@ -12,15 +12,29 @@ class PlayerSelectionReply(ReplyStrategy):
     def __init__(self, game_manager: GameManager):
         super().__init__()
         self.game_manager = game_manager
+        self.update = None
 
     def _create_keyboard(self, added_players: List[int]) -> InlineKeyboardMarkup:
         """Create keyboard with available players."""
         keyboard = []
-        available_players = [
-            p
-            for p in self.game_manager.players.values()
-            if p.telegram_id not in added_players
-        ]
+        chat_id = (
+            self.update.effective_chat.id
+            if self.update and self.update.effective_chat
+            else None
+        )
+
+        if not chat_id or chat_id not in self.game_manager.pods:
+            raise ValueError("Player selection should only be done in group chats.")
+
+        # Get players from the current pod if in a group chat
+        available_players = []
+
+        pod = self.game_manager.pods[chat_id]
+        for member_id in pod.members:
+            if member_id not in added_players:
+                player = self.game_manager.get_pod_player(member_id, chat_id)
+                if player:
+                    available_players.append(player)
 
         for player in available_players:
             keyboard.append(
@@ -42,13 +56,16 @@ class PlayerSelectionReply(ReplyStrategy):
 
     async def execute(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Display player selection interface."""
+        self.update = update
         added_players = context.user_data.get("added_players", [])
         keyboard = self._create_keyboard(added_players)
+        chat_id = update.effective_chat.id
 
         message = "Select players to add to the game:"
         if added_players:
             current_players = [
-                self.game_manager.players[pid].name for pid in added_players
+                self.game_manager.get_pod_player(pid, chat_id).name
+                for pid in added_players
             ]
             message = (
                 f"👥 Current players: {', '.join(current_players)}\n\n"
@@ -113,7 +130,7 @@ class EliminationSelectionReply(ReplyStrategy):
         self.game_manager = game_manager
 
     def _create_keyboard(
-        self, available_players: List[int], current_player_id: int
+        self, available_players: List[int], current_player_id: int, pod_id: int
     ) -> InlineKeyboardMarkup:
         """Create keyboard with available players for elimination."""
         keyboard = []
@@ -121,7 +138,7 @@ class EliminationSelectionReply(ReplyStrategy):
             keyboard.append(
                 [
                     InlineKeyboardButton(
-                        self.game_manager.players[pid].name,
+                        self.game_manager.get_pod_player(pid, pod_id),
                         callback_data=f"eliminate:{pid}",
                     )
                 ]
@@ -136,12 +153,13 @@ class EliminationSelectionReply(ReplyStrategy):
         game = context.user_data["current_game"]
         current_player_id = context.user_data["current_player_id"]
         eliminated_players = context.user_data.get("eliminated_players", [])
+        pod_id = update.effective_chat.id
 
         available_players = [
             p for p in context.user_data["added_players"] if p not in eliminated_players
         ]
 
-        keyboard = self._create_keyboard(available_players, current_player_id)
+        keyboard = self._create_keyboard(available_players, current_player_id, pod_id)
         eliminated_by_current = [
             game.players[eid]
             for eid, eliminator_id in game.eliminations.items()

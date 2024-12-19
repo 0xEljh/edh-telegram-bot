@@ -60,8 +60,33 @@ def create_profile_conversation(game_manager: GameManager) -> ConversationHandle
         # retrieve the player profile from the game manager via their telegram id:
         player = game_manager.get_player(telegram_id=update.effective_user.id)
 
+        # check if in a group chat
+        if update.effective_chat.type not in ["group", "supergroup"]:
+            # if not in a group chat, check if player already exists:
+            if player:
+                return await StatsHandler(update, context)
+            else:
+                # if player doesn't exist, tell them to create a profile via a pod
+                await update.message.reply_text(
+                    "❌ You don't have a profile yet. Join a pod via a group chat to create one!"
+                )
+                return ConversationHandler.END
+
+        chat_id = update.effective_chat.id
+
+        if chat_id not in game_manager.pods:
+            await update.message.reply_text(
+                "❌ No pod exists for this group. Create one first using /pod"
+            )
+            return ConversationHandler.END
+
+        # attempt to retrieve the player's stats from the pod
+        player_stats = game_manager.get_player_stats(
+            telegram_id=update.effective_user.id, pod_id=chat_id
+        )
         # chain subsequent handlers based on whether the player exists or not
-        if player:
+        print(player_stats, player)
+        if player_stats:
             return await StatsHandler(update, context)
         else:
             return await CreateProfileHandler(update, context)
@@ -69,8 +94,11 @@ def create_profile_conversation(game_manager: GameManager) -> ConversationHandle
     async def recieve_name_and_create_profile(
         update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> str:
+        chat_id = update.effective_chat.id
         game_manager.create_player(
-            name=update.message.text.strip(), telegram_id=update.effective_user.id
+            name=update.message.text.strip(),
+            telegram_id=update.effective_user.id,
+            pod_id=chat_id,
         )
         await update.message.reply_text(
             f"✨ Welcome, {update.message.text.strip()}! Your profile has been created. You can now participate in games!"

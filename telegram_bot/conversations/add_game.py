@@ -28,7 +28,23 @@ def create_game_conversation(game_manager: GameManager) -> ConversationHandler:
 
     async def start_game(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Initialize a new game and show player selection."""
-        game = game_manager.create_game()
+        # Check if in group chat
+        if update.effective_chat.type not in ["group", "supergroup"]:
+            await update.message.reply_text(
+                "❌ Games can only be created in group chats."
+            )
+            return ConversationHandler.END
+
+        # Check if pod exists for this group
+        chat_id = update.effective_chat.id
+        if chat_id not in game_manager.pods:
+            await update.message.reply_text(
+                "❌ No pod exists for this group. Create one first using /pod"
+            )
+            return ConversationHandler.END
+
+        # Create game with pod_id
+        game = game_manager.create_game(pod_id=chat_id)
         context.user_data["current_game"] = game
         context.user_data["added_players"] = []
         context.user_data["eliminated_players"] = []
@@ -55,7 +71,9 @@ def create_game_conversation(game_manager: GameManager) -> ConversationHandler:
         player_id = int(query.data.split(":")[1])
         context.user_data["added_players"].append(player_id)
         game = context.user_data["current_game"]
-        game.add_player(player_id, game_manager.players[player_id].name)
+
+        player = game_manager.get_pod_player(player_id, game.pod_id)
+        game.add_player(player_id, player.name)
         return await PlayerSelectionHandler(update, context)
 
     async def handle_outcome_selection(

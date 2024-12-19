@@ -5,12 +5,28 @@ from typing import Dict, List, Optional, Set
 import json
 import os
 from pathlib import Path
+import random
 
 
 class GameOutcome(str, Enum):
     WIN = "win"
     LOSE = "lose"
     DRAW = "draw"
+
+
+# pick a random word for kill
+
+def get_random_kill_word():
+    kill_words = [
+        "killed",
+        "eliminated",
+        "unalived",
+        "vanquished",
+        "stuck down",
+        "slayed",
+    ]
+    return random.choice(kill_words)
+
 
 
 @dataclass
@@ -36,6 +52,31 @@ class PlayerStats:
         else:  # DRAW
             self.draws += 1
 
+    def to_dict(self) -> dict:
+        """Convert PlayerStats to a dictionary for serialization."""
+        return {
+            "telegram_id": self.telegram_id,
+            "name": self.name,
+            "wins": self.wins,
+            "losses": self.losses,
+            "draws": self.draws,
+            "eliminations": self.eliminations,
+            "games_played": self.games_played,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "PlayerStats":
+        """Create PlayerStats from a dictionary."""
+        return cls(
+            telegram_id=data["telegram_id"],
+            name=data["name"],
+            wins=data.get("wins", 0),
+            losses=data.get("losses", 0),
+            draws=data.get("draws", 0),
+            eliminations=data.get("eliminations", 0),
+            games_played=data.get("games_played", 0),
+        )
+
     def __str__(self) -> str:
         """Return a string representation of player stats."""
         return (
@@ -49,6 +90,28 @@ class PlayerStats:
 
 
 @dataclass
+class Pod:
+    id: int
+    name: str
+    members: Set[int] = field(default_factory=set)
+
+    def add_member(self, user_id: int):
+        self.members.add(user_id)
+
+    def remove_member(self, user_id: int):
+        self.members.discard(user_id)
+
+    def to_dict(self):
+        return {"id": self.id, "name": self.name, "members": list(self.members)}
+
+    @classmethod
+    def from_dict(cls, data: dict):
+        pod = cls(id=data["id"], name=data["name"])
+        pod.members = set(data["members"])
+        return pod
+
+
+@dataclass
 class Game:
     """Represents a single EDH game.
 
@@ -56,6 +119,7 @@ class Game:
     """
 
     game_id: int
+    pod_id: int
     created_at: datetime
     players: Dict[int, str] = field(default_factory=dict)  # telegram_id -> name mapping
     outcomes: Dict[int, GameOutcome] = field(default_factory=dict)
@@ -94,6 +158,7 @@ class Game:
         """Convert the game to a dictionary for serialization."""
         return {
             "game_id": self.game_id,
+            "pod_id": self.pod_id,
             "created_at": self.created_at.isoformat(),
             "players": {str(tid): name for tid, name in self.players.items()},
             "outcomes": {
@@ -110,6 +175,7 @@ class Game:
         """Create a Game instance from a dictionary."""
         return cls(
             game_id=int(data["game_id"]),
+            pod_id=int(data["pod_id"]),
             created_at=datetime.fromisoformat(data["created_at"]),
             players={int(tid): name for tid, name in data["players"].items()},
             outcomes={
@@ -126,7 +192,7 @@ class Game:
         """Return a string representation of the game."""
         summary = []
 
-        summary.append(f"💥 {' vs '.join(self.players.values())}")
+        summary.append(f"<b>{' vs '.join(self.players.values())}</b>")
         summary.append("\n")
         for player_id, player_name in self.players.items():
             outcome = self.outcomes.get(player_id, "Unknown")
@@ -139,7 +205,7 @@ class Game:
                 else "💀" if outcome.value == "lose" else "🤝"
             )
             summary.append(
-                f"  {outcome_emoji} {player_name} — {outcome.value.capitalize()} | ⚔️ Eliminations: {eliminations}"
+                f"  {outcome_emoji} {player_name} — {outcome.value.capitalize()} | ⚔️ Kills: {eliminations}"
             )
 
         summary.append("\n")
@@ -148,11 +214,12 @@ class Game:
         for eliminated_id, eliminator_id in self.eliminations.items():
             eliminated_name = self.players[eliminated_id]
             eliminator_name = self.players[eliminator_id]
-            summary.append(f"  ☠️ {eliminated_name} was eliminated by {eliminator_name}")
+            summary.append(
+                f"  ☠️ {eliminated_name} was {get_random_kill_word()} by {eliminator_name}"
+            )
 
         summary.append("\n")
         summary.append(f"Created at: {self.created_at.strftime('%Y-%m-%d %H:%M')}")
-        # summary.append(f"Finalized: {'Yes' if self.finalized else 'No'}")
         return "\n".join(summary)
 
 
@@ -162,11 +229,18 @@ class GameManager:
     def __init__(self, data_file: str = "edh_games.json"):
         self.data_file = data_file
         self.games: Dict[int, Game] = {}
-        self.players: Dict[int, PlayerStats] = {}
+        # self.players: Dict[int, PlayerStats] = {}
+        self.players: Dict[int, Dict[int, PlayerStats]] = (
+            {}
+        )  # user_id -> {pod_id -> PlayerStats}
+        self.pods: Dict[int, Pod] = {}
         self.load_from_file()
 
-    def create_game(self, game_id: Optional[int] = None) -> Game:
-        """Create a new game with an optional ID."""
+    def create_game(self, pod_id: int, game_id: Optional[int] = None) -> Game:
+        """Create a new game."""
+        if pod_id not in self.pods:
+            raise ValueError(f"Pod with ID {pod_id} does not exist")
+
         if game_id is None:
             # Find the next available game ID
             game_id = 0
@@ -177,7 +251,7 @@ class GameManager:
             raise ValueError(f"Game with ID {game_id} already exists")
 
         # Create game but don't store it in self.games until it's finalized
-        return Game(game_id=game_id, created_at=datetime.now())
+        return Game(game_id=game_id, pod_id=pod_id, created_at=datetime.now())
 
     def add_game(self, game: Game) -> None:
         """Add a completed game and update player statistics."""
@@ -186,33 +260,101 @@ class GameManager:
 
         # Update player statistics
         for telegram_id in game.players:
-            if telegram_id not in self.players:
-                self.players[telegram_id] = PlayerStats(
-                    telegram_id=telegram_id, name=game.players[telegram_id]
+            if (
+                telegram_id not in self.players
+                or game.pod_id not in self.players[telegram_id]
+            ):
+                # self.players[telegram_id] = PlayerStats(
+                #     telegram_id=telegram_id, name=game.players[telegram_id]
+                # )
+                raise ValueError(
+                    f"Player {telegram_id} is not in the pod {game.pod_id}"
                 )
 
             eliminations = sum(
                 1 for eid in game.eliminations.values() if eid == telegram_id
             )
-            self.players[telegram_id].update_from_game(
+            self.players[telegram_id][game.pod_id].update_from_game(
                 game.outcomes[telegram_id], eliminations
             )
 
         self.games[game.game_id] = game
         self.save_to_file()
 
+    def create_pod(self, pod_id: int, name: str) -> Pod:
+        if pod_id in self.pods:
+            raise ValueError(f"Pod with ID {pod_id} already exists")
+        pod = Pod(id=pod_id, name=name)
+        self.pods[pod_id] = pod
+        self.save_to_file()
+        return pod
+
+    def add_player_to_pod(self, user_id: int, pod_id: int, name: str):
+        if pod_id not in self.pods:
+            raise ValueError(f"Pod with ID {pod_id} does not exist")
+
+        self.pods[pod_id].add_member(user_id)
+
+        if user_id not in self.players:
+            self.players[user_id] = {}
+
+        if pod_id not in self.players[user_id]:
+            self.players[user_id][pod_id] = PlayerStats(telegram_id=user_id, name=name)
+
+        self.save_to_file()
+
+    def get_player_stats(self, telegram_id: int, pod_id: int) -> Optional[PlayerStats]:
+        """Get a player's statistics by telegram_id and pod_id."""
+        return self.players.get(telegram_id, {}).get(pod_id)
+
+    def get_pod_player(self, telegram_id: int, pod_id: int) -> Optional[PlayerStats]:
+        """Get a player by telegram_id and pod_id; effectively same as get_player_stats"""
+        return self.get_player_stats(telegram_id, pod_id)
+
     def get_player(self, telegram_id: int) -> Optional[PlayerStats]:
-        """Get a player's statistics by telegram_id."""
+        """Get a player by telegram_id. Returns a dictionary of pod_id -> PlayerStats."""
         return self.players.get(telegram_id)
 
-    def create_player(self, telegram_id: int, name: str) -> PlayerStats:
-        """Create a new player."""
-        if telegram_id in self.players:
-            raise ValueError(f"Player {telegram_id} already exists")
-        player = PlayerStats(telegram_id=telegram_id, name=name)
-        self.players[telegram_id] = player
+    def create_player(self, telegram_id: int, name: str, pod_id: int) -> PlayerStats:
+        """Create a new player and add them to a pod."""
+        if pod_id not in self.pods:
+            raise ValueError(f"Pod with ID {pod_id} does not exist")
+
+        if telegram_id not in self.players:
+            self.players[telegram_id] = {}
+
+        if pod_id in self.players[telegram_id]:
+            raise ValueError(f"Player {telegram_id} already exists in pod {pod_id}")
+
+        player_stats = PlayerStats(telegram_id=telegram_id, name=name)
+        self.players[telegram_id][pod_id] = player_stats
+        self.pods[pod_id].add_member(telegram_id)
         self.save_to_file()
-        return player
+        return player_stats
+
+    def get_aggregated_player_stats(self, telegram_id: int) -> Optional[PlayerStats]:
+        """Get aggregated stats for a player across all pods."""
+        if telegram_id not in self.players:
+            return None
+
+        # Get all pod stats for this player
+        pod_stats = self.players[telegram_id]
+        if not pod_stats:
+            return None
+
+        # Take name from any pod (this would be ignored later anyway)
+        any_stats = next(iter(pod_stats.values()))
+        aggregated = PlayerStats(telegram_id=telegram_id, name=any_stats.name)
+
+        # Aggregate stats across all pods
+        for stats in pod_stats.values():
+            aggregated.wins += stats.wins
+            aggregated.losses += stats.losses
+            aggregated.draws += stats.draws
+            aggregated.eliminations += stats.eliminations
+            aggregated.games_played += stats.games_played
+
+        return aggregated
 
     def save_to_file(self) -> None:
         """Save all games and player statistics to file."""
@@ -223,17 +365,10 @@ class GameManager:
                 if game.finalized
             },
             "players": {
-                tid: {
-                    "telegram_id": p.telegram_id,
-                    "name": p.name,
-                    "wins": p.wins,
-                    "losses": p.losses,
-                    "draws": p.draws,
-                    "eliminations": p.eliminations,
-                    "games_played": p.games_played,
-                }
-                for tid, p in self.players.items()
+                tid: {pid: stats.to_dict() for pid, stats in pod_stats.items()}
+                for tid, pod_stats in self.players.items()
             },
+            "pods": {pid: pod.to_dict() for pid, pod in self.pods.items()},
         }
 
         # Ensure directory exists
@@ -257,6 +392,14 @@ class GameManager:
         }
 
         self.players = {
-            int(tid): PlayerStats(**player_data)
-            for tid, player_data in data.get("players", {}).items()
+            int(tid): {
+                int(pid): PlayerStats.from_dict(stats_data)
+                for pid, stats_data in pod_stats.items()
+            }
+            for tid, pod_stats in data.get("players", {}).items()
+        }
+
+        self.pods = {
+            int(pid): Pod.from_dict(pod_data)
+            for pid, pod_data in data.get("pods", {}).items()
         }

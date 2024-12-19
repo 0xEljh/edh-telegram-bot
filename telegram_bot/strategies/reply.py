@@ -53,36 +53,59 @@ class PlayerProfileReply(ReplyStrategy):
             await self._send_message(update, context, "Could not identify user.", None)
             return
         user_name = update.effective_user.first_name
+        user_id = update.effective_user.id
+        chat_id = update.effective_chat.id if update.effective_chat else None
 
-        player = self.game_manager.get_player(update.effective_user.id)
-        if not player:
-            await self._send_message(
-                update,
-                context,
-                "You don't have a profile yet. Join a game to create one!",
-                None,
-            )
-            return
+        # Get player stats based on context
+        # for the specific pod if in a group chat; else the aggregated player stats
+        if chat_id and chat_id in self.game_manager.pods:
+            # In a pod's group chat - show pod-specific stats
+            player_stats = self.game_manager.get_pod_player(user_id, chat_id)
+            if not player_stats:
+                await self._send_message(
+                    update,
+                    context,
+                    "You don't have a profile in this pod yet. Use the /profile command to create one!",
+                    None,
+                )
+                return
+        else:
+            # In private chat - show aggregated stats across all pods
+            player_stats = self.game_manager.get_aggregated_player_stats(user_id)
+            if not player_stats:
+                await self._send_message(
+                    update,
+                    context,
+                    "You don't have a profile yet. Join a pod via a group chat to create one!",
+                    None,
+                )
+                return
+
 
         win_rate = (
-            (player.wins / player.games_played * 100) if player.games_played > 0 else 0
+            (player_stats.wins / player_stats.games_played * 100) if player_stats.games_played > 0 else 0
         )
         avg_eliminations = (
-            (player.eliminations / player.games_played)
-            if player.games_played > 0
+            (player_stats.eliminations / player_stats.games_played)
+            if player_stats.games_played > 0
             else 0
         )
 
         message = (
-            f"🎮 <b>Player Profile for {user_name} aka {player.name}</b>\n\n"
+            f"🎮 <b>Player Profile for {user_name} aka {player_stats.name}"
+            if not chat_id or chat_id not in self.game_manager.pods else
+            f"🎮 <b>Player Profile for {user_name} aka {player_stats.name} in {self.game_manager.pods[chat_id].name}"
+        )
+        message += "</b>\n\n"
+        message += (
             f"📊 <b>Statistics:</b>\n"
-            f"• Games Played: {player.games_played}\n"
-            f"• Wins: {player.wins}\n"
-            f"• Losses: {player.losses}\n"
-            f"• Draws: {player.draws}\n"
-            f"• Total Eliminations: {player.eliminations}\n"
+            f"• Games Played: {player_stats.games_played}\n"
+            f"• Wins: {player_stats.wins}\n"
+            f"• Losses: {player_stats.losses}\n"
+            f"• Draws: {player_stats.draws}\n"
+            f"• Total Kills: {player_stats.eliminations}\n"
             f"• Win Rate: {win_rate:.1f}%\n"
-            f"• Average Eliminations: {avg_eliminations:.1f}\n"
+            f"• Average Kills: {avg_eliminations:.1f}\n"
         )
 
         await self._send_message(update, context, message, None)
@@ -129,31 +152,34 @@ class GameHistoryReply(ReplyStrategy):
             return
 
         player_id = update.effective_user.id
-        player = self.game_manager.get_player(player_id)
-        if not player:
-            await self._send_message(
-                update, context, "You don't have any games yet!", None
-            )
-            return
-
+        chat_id = update.effective_chat.id if update.effective_chat else None
+        
         # Get current page from callback data or default to 0
         current_page = 0
         if update.callback_query and update.callback_query.data.startswith(PAGE_PREFIX):
             current_page = int(update.callback_query.data[len(PAGE_PREFIX) :])
 
-        # Get player's games
-        player_games = [
-            game
-            for game in self.game_manager.games.values()
-            if player_id in game.players
-        ]
+        # Get player's games, filtered by pod if in a group chat
+        player_games = []
+        for game in self.game_manager.games.values():
+            if player_id in game.players:
+                # If in group chat, only show games from this pod
+                if chat_id and chat_id in self.game_manager.pods:
+                    if game.pod_id == chat_id:
+                        player_games.append(game)
+                # If in private chat, show all games
+                else:
+                    player_games.append(game)
+
         player_games.sort(key=lambda g: g.created_at, reverse=True)
 
         total_games = len(player_games)
         if total_games == 0:
-            await self._send_message(
-                update, context, "You haven't played any games yet!", None
-            )
+            message = "You haven't played any games"
+            if chat_id and chat_id in self.game_manager.pods:
+                message += f" in {self.game_manager.pods[chat_id].name}"
+            message += " yet!"
+            await self._send_message(update, context, message, None)
             return
 
         # Paginate games
@@ -162,7 +188,10 @@ class GameHistoryReply(ReplyStrategy):
         current_games = player_games[start_idx:end_idx]
 
         # Create message
-        message = f"🎮 <b>Game History for {player.name}</b>\n"
+        message = f"🎮 <b>Game History"
+        if chat_id and chat_id in self.game_manager.pods:
+            message += f" for {self.game_manager.pods[chat_id].name}"
+        message += "</b>\n"
         message += f"Showing games {start_idx + 1}-{end_idx} of {total_games}\n\n"
 
         for game in current_games:
