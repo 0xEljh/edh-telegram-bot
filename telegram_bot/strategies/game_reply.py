@@ -135,10 +135,11 @@ class EliminationSelectionReply(ReplyStrategy):
         """Create keyboard with available players for elimination."""
         keyboard = []
         for pid in available_players:
+            player = self.game_manager.get_pod_player(pid, pod_id)
             keyboard.append(
                 [
                     InlineKeyboardButton(
-                        self.game_manager.get_pod_player(pid, pod_id),
+                        player.name,
                         callback_data=f"eliminate:{pid}",
                     )
                 ]
@@ -158,7 +159,6 @@ class EliminationSelectionReply(ReplyStrategy):
         available_players = [
             p for p in context.user_data["added_players"] if p not in eliminated_players
         ]
-
         keyboard = self._create_keyboard(available_players, current_player_id, pod_id)
         eliminated_by_current = [
             game.players[eid]
@@ -189,7 +189,7 @@ class GameSummaryReply(ReplyStrategy):
     """Strategy for displaying game summary."""
 
     def __init__(self, game_manager: GameManager):
-        super().__init__()
+        super().__init__(parse_mode="HTML")
         self.game_manager = game_manager
 
     async def execute(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -199,9 +199,14 @@ class GameSummaryReply(ReplyStrategy):
         message = (
             f"Game summary:\n\n{game_summary}\n\n"
             "Type 'confirm' to finalize the game or 'cancel' to discard."
+            "\n---\n"
+            "<i>Reply to this by tapping this message and clicking 'Reply'. I can't see messages that aren't replies to me!</i>"
         )
 
-        if update.callback_query:
-            await update.callback_query.edit_message_text(text=message)
-        else:
-            await update.message.reply_text(text=message)
+        # if update.callback_query:
+        #     await update.callback_query.edit_message_text(text=message)
+        # else:
+        #     await update.message.reply_text(text=message)
+        await self._send_message(
+            update=update, context=context, message=message, keyboard=None
+        )

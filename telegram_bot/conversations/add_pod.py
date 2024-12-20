@@ -9,6 +9,8 @@ from telegram.ext import (
 
 from telegram_bot.models.game import GameManager
 
+from telegram_bot.strategies import SimpleReplyStrategy, LoggingErrorStrategy
+
 NAMING_POD = 0
 
 
@@ -22,9 +24,13 @@ def create_pod_conversation(game_manager: GameManager) -> ConversationHandler:
             )
             return ConversationHandler.END
 
-        await update.message.reply_text(
-            "Please enter a name for your new pod\n---\nMake sure to reply directly to this message, because I can't see your response unless you reply directly to me!"
-        )
+        await SimpleReplyStrategy(
+            message_template=(
+                "Please enter a name for your new pod\n---\n"
+                "<i>Reply to this by tapping this message and clicking 'Reply'. I can't see messages that aren't replies to me!</i>"
+            ),
+            parse_mode="HTML",
+        ).execute(update, context)
         return NAMING_POD
 
     async def name_pod(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -40,7 +46,13 @@ def create_pod_conversation(game_manager: GameManager) -> ConversationHandler:
                 "After pod members have created their profiles with /profile use /game to start recording games for this pod."
             )
         except ValueError as e:
-            await update.message.reply_text(f"Error creating pod: {str(e)}")
+            if "Pod with ID" in str(e) and "already exists" in str(e):
+                pod = game_manager.pods[chat_id]
+                await update.message.reply_text(
+                    f"Your pod, {pod.name}, already exists."
+                )
+            else:
+                await update.message.reply_text(f"Error creating pod: {str(e)}")
 
         return ConversationHandler.END
 
@@ -57,4 +69,6 @@ def create_pod_conversation(game_manager: GameManager) -> ConversationHandler:
         name="pod_conversation",
         persistent=False,
         allow_reentry=True,
+        per_chat=True,
+        per_user=False,
     )

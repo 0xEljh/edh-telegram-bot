@@ -45,4 +45,7 @@ def create_history_conversation(game_manager: GameManager):
             ],
         },
         fallbacks=[],
+        per_chat=True,
+        per_user=True,
+        allow_reentry=True,
     )

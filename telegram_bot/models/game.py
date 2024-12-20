@@ -9,12 +9,15 @@ import random
 
 
 class GameOutcome(str, Enum):
+    """Enum representing possible game outcomes."""
+
     WIN = "win"
     LOSE = "lose"
     DRAW = "draw"
 
 
 # pick a random word for kill
+
 
 def get_random_kill_word():
     kill_words = [
@@ -26,7 +29,6 @@ def get_random_kill_word():
         "slayed",
     ]
     return random.choice(kill_words)
-
 
 
 @dataclass
@@ -52,7 +54,7 @@ class PlayerStats:
         else:  # DRAW
             self.draws += 1
 
-    def to_dict(self) -> dict:
+    def to_dict(self, recursive: bool = False) -> dict:
         """Convert PlayerStats to a dictionary for serialization."""
         return {
             "telegram_id": self.telegram_id,
@@ -195,17 +197,22 @@ class Game:
         summary.append(f"<b>{' vs '.join(self.players.values())}</b>")
         summary.append("\n")
         for player_id, player_name in self.players.items():
-            outcome = self.outcomes.get(player_id, "Unknown")
+            outcome = self.outcomes.get(player_id)
             eliminations = sum(
                 1 for eid in self.eliminations.values() if eid == player_id
             )
-            outcome_emoji = (
-                "🏆"
-                if outcome.value == "win"
-                else "💀" if outcome.value == "lose" else "🤝"
-            )
+            if outcome is None:
+                outcome_emoji = "❓"
+                outcome_text = "Unknown"
+            else:
+                outcome_emoji = (
+                    "🏆"
+                    if outcome == GameOutcome.WIN
+                    else "💀" if outcome == GameOutcome.LOSE else "🤝"
+                )
+                outcome_text = outcome.value.capitalize()
             summary.append(
-                f"  {outcome_emoji} {player_name} — {outcome.value.capitalize()} | ⚔️ Kills: {eliminations}"
+                f"  {outcome_emoji} {player_name} — {outcome_text} | ⚔️ Kills: {eliminations}"
             )
 
         summary.append("\n")

@@ -7,6 +7,7 @@ from telegram.ext import (
     filters,
     ContextTypes,
 )
+import logging
 
 from telegram_bot.models.game import GameManager, GameOutcome
 from telegram_bot.models import UnitHandler
@@ -18,6 +19,8 @@ from telegram_bot.strategies import (
     EliminationSelectionReply,
     GameSummaryReply,
 )
+
+logger = logging.getLogger(__name__)
 
 # Define conversation states
 START_GAME, ADD_PLAYERS, RECORD_OUTCOMES, RECORD_ELIMINATIONS, CONFIRM_GAME = range(5)
@@ -157,11 +160,15 @@ def create_game_conversation(game_manager: GameManager) -> ConversationHandler:
 
                     await context.bot.send_message(
                         chat_id=player_id,
+                        parse_mode="HTML",
                         text=f"{player_personal_message}\n\n{str(game)}",
                     )
                 except Exception as e:
                     # Log error but continue with other players if one fails
                     print(
+                        f"Failed to send game summary to player {player_id}: {str(e)}"
+                    )
+                    logger.warning(
                         f"Failed to send game summary to player {player_id}: {str(e)}"
                     )
 

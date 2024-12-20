@@ -38,11 +38,17 @@ def create_profile_conversation(game_manager: GameManager) -> ConversationHandle
         user_name = (
             update.effective_user.first_name if update.effective_user else "User"
         )
-        return f"👋 Let's create your player profile! What shall others know you as, {user_name}?"
+        pod = game_manager.pods.get(update.effective_chat.id)
+        return (
+            f"👋 Let's create your player profile! What shall others in {pod.name} know you as, {user_name}?"
+            "\n---\n"
+            "<i>Reply to this by tapping this message and clicking 'Reply'. I can't see messages that aren't replies to me!</i>"
+        )
 
     CreateProfileHandler = UnitHandler(
         reply_strategy=SimpleReplyStrategy(
-            message_template=create_profile_message_template
+            message_template=create_profile_message_template,
+            parse_mode="HTML",
         ),
         error_strategy=LoggingErrorStrategy(notify_user=True),
         return_state=ENTER_NAME,
@@ -85,7 +91,6 @@ def create_profile_conversation(game_manager: GameManager) -> ConversationHandle
             telegram_id=update.effective_user.id, pod_id=chat_id
         )
         # chain subsequent handlers based on whether the player exists or not
-        print(player_stats, player)
         if player_stats:
             return await StatsHandler(update, context)
         else:
@@ -115,4 +120,6 @@ def create_profile_conversation(game_manager: GameManager) -> ConversationHandle
             ]
         },
         fallbacks=[],
+        per_chat=True,
+        per_user=True,
     )
