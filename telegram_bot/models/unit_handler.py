@@ -49,6 +49,8 @@ class UnitHandler:
         except Exception as e:
             # Execute error strategy if provided
             if self.error_strategy:
-                await self.error_strategy.handle_error(update, context, e)
+                error_result = await self.error_strategy.handle_error(update, context, e)
+                if error_result is not None:
+                    return error_result
             else:
                 raise

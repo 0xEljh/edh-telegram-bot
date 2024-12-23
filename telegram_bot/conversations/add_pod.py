@@ -24,6 +24,15 @@ def create_pod_conversation(game_manager: GameManager) -> ConversationHandler:
             )
             return ConversationHandler.END
 
+        chat_id = update.effective_chat.id
+
+        if chat_id in game_manager.pods:
+            pod = game_manager.pods[chat_id]
+            await update.message.reply_text(
+                f"This group chat's pod, {pod.name}, has already been created. Use /profile to add yourself to this pod."
+            )
+            return ConversationHandler.END
+
         await SimpleReplyStrategy(
             message_template=(
                 "Please enter a name for your new pod\n---\n"

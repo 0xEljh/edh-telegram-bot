@@ -108,7 +108,7 @@ def create_profile_conversation(game_manager: GameManager) -> ConversationHandle
         await update.message.reply_text(
             f"✨ Welcome, {update.message.text.strip()}! Your profile has been created. You can now participate in games!"
         )
-        return await StatsHandler(update, context)
+        # return await StatsHandler(update, context)
 
     return ConversationHandler(
         entry_points=[CommandHandler("profile", load_profile_and_route_user)],

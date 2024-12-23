@@ -1,5 +1,5 @@
 from telegram import Update
-from telegram.ext import ContextTypes
+from telegram.ext import ContextTypes, ConversationHandler
 import logging
 from typing import Optional
 
@@ -16,9 +16,11 @@ class LoggingErrorStrategy(ErrorStrategy):
         notify_user: bool = True,
         default_message: str = "An error occurred while processing your request. Please try again later.",
         error_messages: Optional[dict[type[Exception], str]] = None,
+        end_conversation: bool = True,
     ):
         super().__init__(error_messages=error_messages, default_message=default_message)
         self.notify_user = notify_user
+        self.end_conversation = end_conversation
 
     async def handle_error(
         self,
@@ -39,6 +41,23 @@ class LoggingErrorStrategy(ErrorStrategy):
                         message = custom_message
                         break
 
+            # Get the command that was used, if any
+            command = None
+            if (
+                update.message
+                and update.message.text
+                and update.message.text.startswith("/")
+            ):
+                command = update.message.text.split()[0]
+
+            # Add retry instruction if we have a command
+            if command:
+                message = f"{message}\n\nUse {command} to try this operation again."
+
             await context.bot.send_message(
                 chat_id=update.effective_chat.id, text=message
             )
+
+        # End the conversation if configured to do so
+        if self.end_conversation:
+            return ConversationHandler.END

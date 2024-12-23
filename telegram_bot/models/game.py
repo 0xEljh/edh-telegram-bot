@@ -410,3 +410,45 @@ class GameManager:
             int(pid): Pod.from_dict(pod_data)
             for pid, pod_data in data.get("pods", {}).items()
         }
+
+    def validate_game_added(self, game: Game) -> bool:
+        """
+        Verify that a finalized game has been properly added to the save file.
+
+        Args:
+            game: The Game object to validate
+
+        Returns:
+            bool: True if game exists in save file and matches the provided game, False otherwise
+        """
+        if not game.finalized:
+            return False
+
+        try:
+            # Load fresh data from file to verify
+            with open(self.data_file, "r") as f:
+                data = json.load(f)
+
+            # Check if game exists in saved data
+            saved_games = data.get("games", {})
+            game_id_str = str(game.game_id)
+
+            if game_id_str not in saved_games:
+                return False
+
+            # Verify key game properties match
+            saved_game = saved_games[game_id_str]
+            # consider simplifying below:
+            return (
+                saved_game["game_id"] == game.game_id
+                and saved_game["pod_id"] == game.pod_id
+                and saved_game["players"]
+                == {str(tid): name for tid, name in game.players.items()}
+                and saved_game["outcomes"]
+                == {str(tid): outcome.value for tid, outcome in game.outcomes.items()}
+                and saved_game["eliminations"]
+                == {str(tid): str(eid) for tid, eid in game.eliminations.items()}
+                and saved_game["finalized"] == game.finalized
+            )
+        except (IOError, json.JSONDecodeError, KeyError):
+            return False

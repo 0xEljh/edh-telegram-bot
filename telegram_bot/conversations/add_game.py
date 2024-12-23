@@ -138,6 +138,14 @@ def create_game_conversation(game_manager: GameManager) -> ConversationHandler:
         if text == "confirm":
             game.finalize()
             game_manager.add_game(game)
+
+            # validate that the game has been saved to file
+            if not game_manager.validate_game_added(game):
+                await update.message.reply_text(
+                    "❌ An error occurred while saving the game. Please try again later."
+                )
+                return ConversationHandler.END
+
             await update.message.reply_text("👍 Game has been finalized and saved.")
 
             # Broadcast the game summary to all players
