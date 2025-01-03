@@ -14,7 +14,7 @@ import os
 
 dotenv.load_dotenv()
 
-game_manager = GameManager("data/data.json")
+game_manager = GameManager(db_url="sqlite:///data/games.db")
 
 # Create the handlers
 start_command = create_start_handler()
@@ -23,7 +23,9 @@ profile_conversation = create_profile_conversation(game_manager)
 game_conversation = create_game_conversation(game_manager)
 history_command = create_history_conversation(game_manager)
 pod_conversation = create_pod_conversation(game_manager)
-leaderboard_conversation, leaderboard_callback = create_leaderboard_conversation(game_manager)
+leaderboard_conversation, leaderboard_callback = create_leaderboard_conversation(
+    game_manager
+)
 
 
 # build and run application
