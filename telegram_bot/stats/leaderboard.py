@@ -1,4 +1,5 @@
 """Leaderboard generation and display utilities."""
+
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime, timedelta
 from io import BytesIO
@@ -37,38 +38,40 @@ def get_player_stats(
     game_manager: GameManager,
     pod_id: int,
     time_filter: str = "week",
-    sort_by: str = "winrate"
+    sort_by: str = "winrate",
 ) -> Tuple[List[PlayerStats], List[PlayerStats]]:
     """Get sorted lists of active and inactive players for a pod.
-    
+
     Args:
         game_manager: The game manager instance
         pod_id: ID of the pod to get stats for
         time_filter: 'all' or 'week'
         sort_by: Sorting method from SORT_METHODS
-        
+
     Returns:
         Tuple of (active_players, inactive_players)
     """
     players_stats = []
     cutoff_date = None
-    
+
     if time_filter == "week":
         cutoff_date = datetime.now() - timedelta(days=7)
 
     # Get stats for all players
-    for user_id in game_manager.pods[pod_id].members:
-        if stats := game_manager.get_player_stats(user_id, pod_id, since_date=cutoff_date):
+    for user_id in game_manager.get_pod_members(pod_id):
+        if stats := game_manager.get_player_stats(
+            user_id, pod_id, since_date=cutoff_date
+        ):
             players_stats.append(stats)
 
     # Split into active and inactive
     active_players = [p for p in players_stats if p.games_played > 0]
     inactive_players = [p for p in players_stats if p.games_played == 0]
-    
+
     # Sort active players
     sort_func = SORT_METHODS[sort_by]
     active_players.sort(key=sort_func, reverse=True)
-    
+
     return active_players, inactive_players
 
 
@@ -77,17 +80,17 @@ def generate_leaderboard_text(
     active_players: List[PlayerStats],
     inactive_players: Optional[List[PlayerStats]] = None,
     sort_by: str = "winrate",
-    time_filter: str = "week"
+    time_filter: str = "week",
 ) -> str:
     """Generate formatted leaderboard text.
-    
+
     Args:
         pod_name: Name of the pod
         active_players: List of players with games played
         inactive_players: Optional list of players with no games
         sort_by: Sorting method used
         time_filter: Time period filter used
-        
+
     Returns:
         Formatted leaderboard text
     """
@@ -118,7 +121,7 @@ def generate_leaderboard_text(
             message += "\n<i>Inactive Players:</i>\n"
             for player in inactive_players:
                 message += f"• {player.name}\n"
-                
+
     return message
 
 
@@ -126,29 +129,27 @@ def generate_stat_cards(
     active_players: List[PlayerStats],
     game_manager: GameManager,
     pod_id: int,
-    num_highlights: int = 3
+    num_highlights: int = 3,
 ) -> List[StatCardData]:
     """Generate stat cards for the leaderboard.
-    
+
     Args:
         active_players: List of players with games played
         game_manager: GameManager instance for getting avatars
         pod_id: ID of the pod
         num_highlights: Number of stat cards to generate
-        
+
     Returns:
         List of StatCardData objects
     """
     if not active_players:
         return []
-        
+
     # Get highlighted stats
     highlights = pick_highlight_stats(
-        active_players,
-        num_highlights=num_highlights,
-        required_stats=REQUIRED_STATS
+        active_players, num_highlights=num_highlights, required_stats=REQUIRED_STATS
     )
-    
+
     # Create stat cards from highlights
     stat_cards = []
     for highlight in highlights:
@@ -163,36 +164,33 @@ def generate_stat_cards(
                 subtitle=highlight.subtitle,
             )
         )
-        
+
     return stat_cards
 
 
 def generate_leaderboard_image(
-    stat_cards: List[StatCardData],
-    pod_name: str,
-    time_filter: str = "week"
+    stat_cards: List[StatCardData], pod_name: str, time_filter: str = "week"
 ) -> BytesIO:
     """Generate a leaderboard image with stat cards.
-    
+
     Args:
         stat_cards: List of stat cards to include
         pod_name: Name of the pod
         time_filter: Time period filter used
-        
+
     Returns:
         BytesIO object containing the PNG image
     """
     if not stat_cards:
         return None
-        
+
     image = create_leaderboard_image(
-        stat_cards,
-        f"{pod_name} Top Players ({TIME_FILTERS[time_filter]})"
+        stat_cards, f"{pod_name} Top Players ({TIME_FILTERS[time_filter]})"
     )
-    
+
     # Convert to bytes for sending
     bio = BytesIO()
     image.save(bio, "PNG")
     bio.seek(0)
-    
+
     return bio

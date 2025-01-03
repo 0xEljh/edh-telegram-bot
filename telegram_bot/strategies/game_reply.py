@@ -29,8 +29,7 @@ class PlayerSelectionReply(ReplyStrategy):
         # Get players from the current pod if in a group chat
         available_players = []
 
-        pod = self.game_manager.pods[chat_id]
-        for member_id in pod.members:
+        for member_id in self.game_manager.get_pod_members(chat_id):
             if member_id not in added_players:
                 player = self.game_manager.get_pod_player(member_id, chat_id)
                 if player:

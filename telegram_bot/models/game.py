@@ -307,12 +307,24 @@ class GameManager:
         """Initialize the game manager with a database connection."""
         self.Session = init_db(db_url)
         self._session = self.Session()
-        self.games: Dict[int, Game] = {}
-        self.players: Dict[int, Dict[int, PlayerStats]] = (
-            {}
-        )  # user_id -> {pod_id -> PlayerStats}
-        self.pods: Dict[int, Pod] = {}
-        self.load_from_db()
+
+    @property
+    def games(self) -> Dict[int, Game]:
+        """Get all games."""
+        return self._session.query(DBGame).all()
+
+    @property
+    def players(self) -> Dict[int, Dict[int, PlayerStats]]:
+        """Get all players."""
+        return self._session.query(PodPlayer).all()
+
+    @property
+    def pods(self) -> Dict[int, Pod]:
+        """Get all pods."""
+        return {
+            pod.pod_id: Pod(id=pod.pod_id, name=pod.name, members=pod.players)
+            for pod in self._session.query(DBPod).all()
+        }
 
     def create_game(self, pod_id: int, game_id: Optional[int] = None) -> Game:
         """Create a new game."""
@@ -338,35 +350,6 @@ class GameManager:
         # Ensure game is finalized in database
         game.finalize(self._session)
 
-        # Update player statistics and ensure game is in database
-        for telegram_id in game.players:
-            player = (
-                self._session.query(PodPlayer)
-                .filter_by(pod_id=game.pod_id, telegram_id=telegram_id)
-                .first()
-            )
-            if not player:
-                raise ValueError(
-                    f"Player {telegram_id} is not in the pod {game.pod_id}"
-                )
-
-            # Update stats in memory
-            if telegram_id not in self.players:
-                self.players[telegram_id] = {}
-            if game.pod_id not in self.players[telegram_id]:
-                self.players[telegram_id][game.pod_id] = PlayerStats(
-                    telegram_id=telegram_id, name=game.players[telegram_id]
-                )
-
-            eliminations = sum(
-                1 for eid in game.eliminations.values() if eid == telegram_id
-            )
-            self.players[telegram_id][game.pod_id].update_from_game(
-                game.outcomes[telegram_id], eliminations
-            )
-
-        self.games[game.game_id] = game
-
     def create_pod(self, pod_id: int, name: str) -> Pod:
         """Create a new pod."""
         if self._session.query(DBPod).filter_by(pod_id=pod_id).first():
@@ -377,37 +360,15 @@ class GameManager:
         self._session.commit()
 
         pod = Pod(id=pod_id, name=name)
-        self.pods[pod_id] = pod
+        # self.pods[pod_id] = pod
         return pod
 
-    # def add_player_to_pod(self, user_id: int, pod_id: int, name: str):
-    #     """Add a player to a pod."""
-    #     db_pod = self._session.query(DBPod).filter_by(pod_id=pod_id).first()
-    #     if not db_pod:
-    #         raise ValueError(f"Pod with ID {pod_id} does not exist")
-
-    #     # Check if player already exists in pod
-    #     existing = (
-    #         self._session.query(PodPlayer)
-    #         .filter_by(pod_id=pod_id, telegram_id=user_id)
-    #         .first()
-    #     )
-    #     if existing:
-    #         raise ValueError(f"Player {user_id} already exists in pod {pod_id}")
-
-    #     # Create pod player in database
-    #     pod_player = PodPlayer(pod_id=pod_id, telegram_id=user_id, name=name)
-    #     self._session.add(pod_player)
-    #     self._session.commit()
-
-    #     # Update local state
-    #     if pod_id not in self.pods:
-    #         self.pods[pod_id] = Pod(id=pod_id, name=db_pod.name)
-    #     self.pods[pod_id].add_member(user_id)
-
-    #     if user_id not in self.players:
-    #         self.players[user_id] = {}
-    #     self.players[user_id][pod_id] = PlayerStats(telegram_id=user_id, name=name)
+    def get_pod_members(self, pod_id: int) -> Set[int]:
+        """Get all member IDs in a pod."""
+        pod = self._session.query(DBPod).filter_by(pod_id=pod_id).first()
+        if pod:
+            return set(player.telegram_id for player in pod.players)
+        return set()
 
     def create_player(
         self, telegram_id: int, name: str, pod_id: int, avatar_url: Optional[str] = None
@@ -439,12 +400,7 @@ class GameManager:
         self._session.add(pod_player)
         self._session.commit()
 
-        # Update in-memory data structures
         player_stats = PlayerStats(telegram_id=telegram_id, name=name)
-        if telegram_id not in self.players:
-            self.players[telegram_id] = {}
-        self.players[telegram_id][pod_id] = player_stats
-        self.pods[pod_id].add_member(telegram_id)
 
         return player_stats
 
@@ -460,26 +416,7 @@ class GameManager:
     def get_player_stats(
         self, telegram_id: int, pod_id: int, since_date: Optional[datetime] = None
     ) -> Optional[PlayerStats]:
-        """Get a player's statistics by telegram_id and pod_id.
-
-        Args:
-            telegram_id: The player's Telegram ID
-            pod_id: The pod ID to get stats for
-            since_date: Optional date to filter games from
-        """
-        if telegram_id not in self.players:
-            self.players[telegram_id] = {}
-
-        if pod_id not in self.players[telegram_id]:
-            self.load_player_stats(telegram_id, pod_id, since_date)
-
-        return self.players[telegram_id].get(pod_id)
-
-    def load_player_stats(
-        self, telegram_id: int, pod_id: int, since_date: Optional[datetime] = None
-    ) -> None:
-        """Load player stats from database."""
-        # Get the player from database
+        """Get a player's statistics by telegram_id and pod_id."""
         player = (
             self._session.query(PodPlayer)
             .filter_by(telegram_id=telegram_id, pod_id=pod_id)
@@ -488,44 +425,50 @@ class GameManager:
         if not player:
             return None
 
-        # Create base PlayerStats object
         stats = PlayerStats(telegram_id=telegram_id, name=player.name)
 
-        # Build query for game results
         query = (
             self._session.query(GameResult)
-            .join(GameResult.player)  # Join with the player relationship
+            .join(GameResult.player)
             .filter(
                 PodPlayer.pod_id == pod_id,
                 PodPlayer.pods_player_id == GameResult.player_id,
+                PodPlayer.telegram_id == telegram_id,
             )
         )
 
-        # Add date filter if specified
         if since_date:
-            query = query.filter(Game.created_at >= since_date)
+            query = query.filter(DBGame.created_at >= since_date)
 
-        # Get game results
         for result in query.all():
-            # Count eliminations
             eliminations = self._session.query(Elimination).filter(
                 Elimination.game_id == result.game_id,
                 Elimination.eliminator_id == player.pods_player_id,
             )
             if since_date:
-                eliminations = eliminations.join(Game).filter(
-                    Game.created_at >= since_date
+                eliminations = eliminations.join(DBGame).filter(
+                    DBGame.created_at >= since_date
                 )
-
             elim_count = eliminations.count()
 
-            # Update stats
             stats.update_from_game(GameOutcome(result.outcome), eliminations=elim_count)
 
-        if telegram_id not in self.players:
-            self.players[telegram_id] = {}
+        return stats
 
-        self.players[telegram_id][pod_id] = stats
+    def get_player_games(self, telegram_id, pod_id=None) -> List[Game]:
+        """Get all games for a player, optionally filtered by pod."""
+        query = self._session.query(GameResult).join(GameResult.player)
+        query = query.filter(PodPlayer.telegram_id == telegram_id)
+
+        if pod_id:
+            query = query.filter(PodPlayer.pod_id == pod_id)
+
+        games = []
+        for result in query.all():
+            game = self._session.query(DBGame).filter_by(game_id=result.game_id).first()
+            games.append(Game.from_db_game(game))
+
+        return games
 
     def get_pod_player(self, telegram_id: int, pod_id: int) -> Optional[PlayerStats]:
         """Get a player by telegram_id and pod_id."""
@@ -533,24 +476,18 @@ class GameManager:
 
     def get_player(self, telegram_id: int) -> Optional[Dict[int, PlayerStats]]:
         """Get all pod stats for a player by telegram_id."""
-        # Load all pod stats for this player if not already loaded
         players = (
             self._session.query(PodPlayer).filter_by(telegram_id=telegram_id).all()
         )
-        for player in players:
-            if (
-                telegram_id not in self.players
-                or player.pod_id not in self.players[telegram_id]
-            ):
-                self.load_player_stats(telegram_id, player.pod_id)
-        return self.players.get(telegram_id)
+        return {
+            player.pod_id: self.get_player_stats(telegram_id, player.pod_id)
+            for player in players
+        }
 
     def get_aggregated_player_stats(self, telegram_id: int) -> Optional[PlayerStats]:
         """Get aggregated stats for a player across all pods."""
-        # Ensure all pod stats are loaded
-        self.get_player()
-
-        if telegram_id not in self.players:
+        player_stats = self.get_player(telegram_id)
+        if not player_stats:
             return None
 
         # Get all pod stats for this player
@@ -558,9 +495,12 @@ class GameManager:
         if not pod_stats:
             return None
 
-        # Take name from any pod (this would be ignored later anyway)
-        any_stats = next(iter(pod_stats.values()))
-        aggregated = PlayerStats(telegram_id=telegram_id, name=any_stats.name)
+        # # Take name from any pod (this would be ignored later anyway)
+        # any_stats = next(iter(pod_stats.values()))
+        # aggregated = PlayerStats(telegram_id=telegram_id, name=any_stats.name)
+        aggregated = PlayerStats(
+            telegram_id=telegram_id, name=next(iter(player_stats.values())).name
+        )
 
         # Aggregate stats across all pods
         for stats in pod_stats.values():
@@ -572,25 +512,23 @@ class GameManager:
 
         return aggregated
 
-    def load_from_db(self):
-        """Load all data from database into memory."""
-        # Load pods
-        db_pods = self._session.query(DBPod).all()
-        for db_pod in db_pods:
-            pod = Pod(id=db_pod.pod_id, name=db_pod.name)
-            self.pods[db_pod.pod_id] = pod
+    def get_pod_games(
+        self, pod_id: int, since_date: Optional[datetime] = None
+    ) -> List[Game]:
+        """Get all games from a specific pod, optionally filtered by date.
 
-            # Load pod members
-            for player in db_pod.players:
-                pod.add_member(player.telegram_id)
+        Args:
+            pod_id: The ID of the pod to get games for
+            since_date: Optional date to filter games from
 
-        # Load games
-        db_games = self._session.query(DBGame).all()
-        for db_game in db_games:
-            game = Game.from_db_game(db_game)
-            self.games[game.game_id] = game
+        Returns:
+            List of Game objects, sorted by creation date (newest first)
+        """
+        query = self._session.query(DBGame).filter(DBGame.pod_id == pod_id)
 
-        # Load player stats
-        players = self._session.query(PodPlayer).all()
-        for player in players:
-            self.load_player_stats(player.telegram_id, player.pod_id)
+        if since_date:
+            query = query.filter(DBGame.created_at >= since_date)
+
+        query = query.order_by(DBGame.created_at.desc())
+
+        return [Game.from_db_game(db_game) for db_game in query.all()]

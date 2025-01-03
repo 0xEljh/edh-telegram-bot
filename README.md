@@ -9,7 +9,29 @@ A Telegram bot to track wins, losses, and statistics in your EDH/Commander Magic
 - Record player eliminations and kill counts
 - View player statistics per pod and overall
 - Simple and intuitive conversation-based interface
-- Persistent data storage (kept simple for now)
+- Persistent SQLite database storage
+
+### Leaderboard System
+- Visual stat cards showing top performers
+- Multiple ranking options (win rate, total wins, kills, games played)
+- Time-based filtering (past week or all-time)
+- Automatic weekly roundups sent to each pod
+
+### Player Profiles
+- Customizable player avatars
+- Per-pod statistics tracking
+- Stats
+  - Win rate
+  - Total wins/losses
+  - Kill count
+  - Games played
+
+### Game Recording
+- Track game winners and losers
+- Record player eliminations
+- Support for multiple pods
+- Historical game lookup
+
 
 ## Commands
 
@@ -18,6 +40,7 @@ A Telegram bot to track wins, losses, and statistics in your EDH/Commander Magic
 - `/game` - Start recording a new game
 - `/history` - View game history
 - `/pod` - Create or manage pods
+- `/leaderboard` - View pod leaderboard with stats and rankings
 
 ## Installation
 
@@ -60,12 +83,18 @@ python main.py
   - `handlers/` - Command handlers
   - `models/` - Data models and game logic
   - `strategies/` - Reply and error handling strategies
+  - `stats/` - Statistics calculation and leaderboard generation
+  - `image_gen/` - Image generation for stat cards
+  - `scheduled_tasks/` - Automated tasks like weekly updates
 
 ## Dependencies
 
 - Python 3.11+
-- python-telegram-bot 20.7+
+- python-telegram-bot[job-queue] 21.10+
 - python-dotenv 1.0.0+
+- SQLAlchemy 2.0.0+
+- Pillow 11.1.0+
+
 
 ## License
 
@@ -81,6 +110,7 @@ Any contributions are welcome!
 
 ## Future Plans
 
-- Weekly broadcasts of game results and statistics
-- More persistent persistent storage (it's a local JSON file for now)
-- Add a leaderboard feature
+- More detailed statistics and analytics
+- Editable player profiles
+- Ability to delete/edit games
+- Enhanced visualization options

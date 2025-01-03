@@ -27,11 +27,12 @@ def create_pod_conversation(game_manager: GameManager) -> ConversationHandler:
         chat_id = update.effective_chat.id
 
         if chat_id in game_manager.pods:
+
             pod = game_manager.pods[chat_id]
 
             # Get all members in the pod
             member_stats = []
-            for user_id in pod.members:
+            for user_id in game_manager.get_pod_members(chat_id):
                 if stats := game_manager.get_player_stats(user_id, chat_id):
                     member_stats.append(stats)
 

@@ -31,6 +31,8 @@ class LoggingErrorStrategy(ErrorStrategy):
     ) -> None:
         """Log the error and optionally notify the user."""
         logger.error(f"Error occurred while handling update {update}: {error}")
+        # also include the stack trace in the log
+        logger.exception(error)
 
         if self.notify_user and update.effective_chat:
             # Find the most specific error message that matches the error type
