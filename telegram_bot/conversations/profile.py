@@ -13,6 +13,8 @@ from telegram.ext import (
     filters,
     ContextTypes,
 )
+import os
+from pathlib import Path
 
 from telegram_bot.models.game import GameManager
 from telegram_bot.models import UnitHandler
@@ -24,13 +26,37 @@ from telegram_bot.strategies import (
 )
 
 ENTER_NAME = 0
+ENTER_PHOTO = 1
 
+AVATAR_DIR = Path("data/avatars")
+
+async def save_avatar(bot, photo, user_id: int) -> str:
+    """Save the user's avatar photo to disk.
+    
+    Args:
+        bot: The telegram bot instance
+        photo: The PhotoSize object from telegram
+        user_id: The user's telegram ID
+        
+    Returns:
+        The relative path to the saved avatar file
+    """
+    # Get the file from Telegram
+    file = await bot.get_file(photo.file_id)
+    
+    # Create filename using user_id
+    filename = f"{user_id}.jpg"
+    filepath = AVATAR_DIR / filename
+    
+    # Download and save the file
+    await file.download_to_drive(custom_path=str(filepath))
+    
+    return str(filepath)
 
 def create_profile_conversation(game_manager: GameManager) -> ConversationHandler:
     # profile handler has 2 routes:
     # if user doesn't have a profile, move to creating one
     # if user has a profile, show their stats
-    # game_manager = GameManager("data/data.json")
 
     def create_profile_message_template(
         update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -96,27 +122,83 @@ def create_profile_conversation(game_manager: GameManager) -> ConversationHandle
         else:
             return await CreateProfileHandler(update, context)
 
-    async def recieve_name_and_create_profile(
+    async def receive_name_and_prompt_photo(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> str:
+        # Store the name in context for later use
+        context.user_data["profile_name"] = update.message.text.strip()
+        
+        await update.message.reply_text(
+            "Great name! 📸 Now, you can optionally send me a photo for your profile, or send /skip to continue without one."
+        )
+        return ENTER_PHOTO
+
+    async def receive_photo_and_create_profile(
         update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> str:
         chat_id = update.effective_chat.id
+        name = context.user_data["profile_name"]
+        
+        # Get the smallest usable photo (we don't need high resolution)
+        # Telegram sends multiple sizes, first is smallest
+        photo = update.message.photo[0]
+        
+        # Save the avatar
+        avatar_path = await save_avatar(context.bot, photo, update.effective_user.id)
+        
         game_manager.create_player(
-            name=update.message.text.strip(),
+            name=name,
             telegram_id=update.effective_user.id,
             pod_id=chat_id,
+            avatar_url=avatar_path
         )
+        
         await update.message.reply_text(
-            f"✨ Welcome, {update.message.text.strip()}! Your profile has been created. You can now participate in games!"
+            f"✨ Welcome, {name}! Your profile has been created with your photo. You can now participate in games!"
         )
-        # return await StatsHandler(update, context)
+        return ConversationHandler.END
+
+    async def skip_photo_and_create_profile(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> str:
+        chat_id = update.effective_chat.id
+        name = context.user_data["profile_name"]
+        
+        # Try to get user's Telegram profile photo
+        user_profile_photos = await context.bot.get_user_profile_photos(
+            user_id=update.effective_user.id,
+            limit=1
+        )
+        
+        avatar_path = None
+        if user_profile_photos.total_count > 0:
+            # Get the smallest usable size of their profile photo
+            photo = user_profile_photos.photos[0][0]  # First photo, smallest size
+            avatar_path = await save_avatar(context.bot, photo, update.effective_user.id)
+        
+        game_manager.create_player(
+            name=name,
+            telegram_id=update.effective_user.id,
+            pod_id=chat_id,
+            avatar_url=avatar_path
+        )
+        
+        await update.message.reply_text(
+            f"✨ Welcome, {name}! Your profile has been created. You can now participate in games!"
+        )
+        return ConversationHandler.END
 
     return ConversationHandler(
         entry_points=[CommandHandler("profile", load_profile_and_route_user)],
         states={
             ENTER_NAME: [
                 MessageHandler(
-                    filters.TEXT & ~filters.COMMAND, recieve_name_and_create_profile
+                    filters.TEXT & ~filters.COMMAND, receive_name_and_prompt_photo
                 )
+            ],
+            ENTER_PHOTO: [
+                MessageHandler(filters.PHOTO, receive_photo_and_create_profile),
+                CommandHandler("skip", skip_photo_and_create_profile)
             ]
         },
         fallbacks=[],
