@@ -30,28 +30,31 @@ ENTER_PHOTO = 1
 
 AVATAR_DIR = Path("data/avatars")
 
-async def save_avatar(bot, photo, user_id: int) -> str:
+
+async def save_avatar(bot, photo, user_id: int, pod_id: int) -> str:
     """Save the user's avatar photo to disk.
-    
+
     Args:
         bot: The telegram bot instance
         photo: The PhotoSize object from telegram
         user_id: The user's telegram ID
-        
+        pod_id: The pod ID; i.e. the group chat ID
+
     Returns:
         The relative path to the saved avatar file
     """
     # Get the file from Telegram
     file = await bot.get_file(photo.file_id)
-    
+
     # Create filename using user_id
-    filename = f"{user_id}.jpg"
+    filename = f"{user_id}_{pod_id}.jpg"
     filepath = AVATAR_DIR / filename
-    
+
     # Download and save the file
     await file.download_to_drive(custom_path=str(filepath))
-    
+
     return str(filepath)
+
 
 def create_profile_conversation(game_manager: GameManager) -> ConversationHandler:
     # profile handler has 2 routes:
@@ -127,7 +130,7 @@ def create_profile_conversation(game_manager: GameManager) -> ConversationHandle
     ) -> str:
         # Store the name in context for later use
         context.user_data["profile_name"] = update.message.text.strip()
-        
+
         await update.message.reply_text(
             "Great name! 📸 Now, you can optionally send me a photo for your profile, or send /skip to continue without one."
         )
@@ -138,21 +141,24 @@ def create_profile_conversation(game_manager: GameManager) -> ConversationHandle
     ) -> str:
         chat_id = update.effective_chat.id
         name = context.user_data["profile_name"]
-        
+
         # Get the smallest usable photo (we don't need high resolution)
         # Telegram sends multiple sizes, first is smallest
         photo = update.message.photo[0]
-        
+
         # Save the avatar
-        avatar_path = await save_avatar(context.bot, photo, update.effective_user.id)
-        
+        # note that since avatars are unique to each (user, pod) pair, we can't just use the user_id
+        avatar_path = await save_avatar(
+            context.bot, photo, update.effective_user.id, chat_id
+        )
+
         game_manager.create_player(
             name=name,
             telegram_id=update.effective_user.id,
             pod_id=chat_id,
-            avatar_url=avatar_path
+            avatar_url=avatar_path,
         )
-        
+
         await update.message.reply_text(
             f"✨ Welcome, {name}! Your profile has been created with your photo. You can now participate in games!"
         )
@@ -163,26 +169,27 @@ def create_profile_conversation(game_manager: GameManager) -> ConversationHandle
     ) -> str:
         chat_id = update.effective_chat.id
         name = context.user_data["profile_name"]
-        
+
         # Try to get user's Telegram profile photo
         user_profile_photos = await context.bot.get_user_profile_photos(
-            user_id=update.effective_user.id,
-            limit=1
+            user_id=update.effective_user.id, limit=1
         )
-        
+
         avatar_path = None
         if user_profile_photos.total_count > 0:
             # Get the smallest usable size of their profile photo
             photo = user_profile_photos.photos[0][0]  # First photo, smallest size
-            avatar_path = await save_avatar(context.bot, photo, update.effective_user.id)
-        
+            avatar_path = await save_avatar(
+                context.bot, photo, update.effective_user.id, chat_id
+            )
+
         game_manager.create_player(
             name=name,
             telegram_id=update.effective_user.id,
             pod_id=chat_id,
-            avatar_url=avatar_path
+            avatar_url=avatar_path,
         )
-        
+
         await update.message.reply_text(
             f"✨ Welcome, {name}! Your profile has been created. You can now participate in games!"
         )
@@ -198,8 +205,8 @@ def create_profile_conversation(game_manager: GameManager) -> ConversationHandle
             ],
             ENTER_PHOTO: [
                 MessageHandler(filters.PHOTO, receive_photo_and_create_profile),
-                CommandHandler("skip", skip_photo_and_create_profile)
-            ]
+                CommandHandler("skip", skip_photo_and_create_profile),
+            ],
         },
         fallbacks=[],
         per_chat=True,

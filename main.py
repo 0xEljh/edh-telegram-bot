@@ -7,10 +7,17 @@ from telegram_bot.conversations import (
     create_leaderboard_conversation,
 )
 from telegram_bot.handlers import create_start_handler, create_help_handler
+from telegram_bot.scheduled_tasks import schedule_weekly_roundup
 
 from telegram.ext import Application
 import dotenv
 import os
+import logging
+
+# Set up logging
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+)
 
 dotenv.load_dotenv()
 
@@ -27,9 +34,11 @@ leaderboard_conversation, leaderboard_callback = create_leaderboard_conversation
     game_manager
 )
 
-
-# build and run application
+# build application
 application = Application.builder().token(os.getenv("TELEGRAM_BOT_TOKEN")).build()
+
+
+# Add handlers
 application.add_handler(start_command)
 application.add_handler(help_command)
 application.add_handler(profile_conversation)
@@ -38,4 +47,9 @@ application.add_handler(history_command)
 application.add_handler(pod_conversation)
 application.add_handler(leaderboard_conversation)
 application.add_handler(leaderboard_callback)
+
+# Schedule weekly roundup
+schedule_weekly_roundup(application, game_manager)
+
+# Start the bot
 application.run_polling()

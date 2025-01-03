@@ -380,34 +380,34 @@ class GameManager:
         self.pods[pod_id] = pod
         return pod
 
-    def add_player_to_pod(self, user_id: int, pod_id: int, name: str):
-        """Add a player to a pod."""
-        db_pod = self._session.query(DBPod).filter_by(pod_id=pod_id).first()
-        if not db_pod:
-            raise ValueError(f"Pod with ID {pod_id} does not exist")
+    # def add_player_to_pod(self, user_id: int, pod_id: int, name: str):
+    #     """Add a player to a pod."""
+    #     db_pod = self._session.query(DBPod).filter_by(pod_id=pod_id).first()
+    #     if not db_pod:
+    #         raise ValueError(f"Pod with ID {pod_id} does not exist")
 
-        # Check if player already exists in pod
-        existing = (
-            self._session.query(PodPlayer)
-            .filter_by(pod_id=pod_id, telegram_id=user_id)
-            .first()
-        )
-        if existing:
-            raise ValueError(f"Player {user_id} already exists in pod {pod_id}")
+    #     # Check if player already exists in pod
+    #     existing = (
+    #         self._session.query(PodPlayer)
+    #         .filter_by(pod_id=pod_id, telegram_id=user_id)
+    #         .first()
+    #     )
+    #     if existing:
+    #         raise ValueError(f"Player {user_id} already exists in pod {pod_id}")
 
-        # Create pod player in database
-        pod_player = PodPlayer(pod_id=pod_id, telegram_id=user_id, name=name)
-        self._session.add(pod_player)
-        self._session.commit()
+    #     # Create pod player in database
+    #     pod_player = PodPlayer(pod_id=pod_id, telegram_id=user_id, name=name)
+    #     self._session.add(pod_player)
+    #     self._session.commit()
 
-        # Update local state
-        if pod_id not in self.pods:
-            self.pods[pod_id] = Pod(id=pod_id, name=db_pod.name)
-        self.pods[pod_id].add_member(user_id)
+    #     # Update local state
+    #     if pod_id not in self.pods:
+    #         self.pods[pod_id] = Pod(id=pod_id, name=db_pod.name)
+    #     self.pods[pod_id].add_member(user_id)
 
-        if user_id not in self.players:
-            self.players[user_id] = {}
-        self.players[user_id][pod_id] = PlayerStats(telegram_id=user_id, name=name)
+    #     if user_id not in self.players:
+    #         self.players[user_id] = {}
+    #     self.players[user_id][pod_id] = PlayerStats(telegram_id=user_id, name=name)
 
     def create_player(
         self, telegram_id: int, name: str, pod_id: int, avatar_url: Optional[str] = None
@@ -439,13 +439,12 @@ class GameManager:
         self._session.add(pod_player)
         self._session.commit()
 
-        # Initialize PlayerStats object
-        player_stats = PlayerStats(telegram_id=telegram_id, name=name)
-
         # Update in-memory data structures
+        player_stats = PlayerStats(telegram_id=telegram_id, name=name)
         if telegram_id not in self.players:
             self.players[telegram_id] = {}
         self.players[telegram_id][pod_id] = player_stats
+        self.pods[pod_id].add_member(telegram_id)
 
         return player_stats
 
