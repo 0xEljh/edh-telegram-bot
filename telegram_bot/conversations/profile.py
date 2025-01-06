@@ -113,17 +113,17 @@ def create_profile_conversation(game_manager: GameManager) -> ConversationHandle
                 return await StatsHandler(update, context)
             else:
                 # if player doesn't exist, tell them to create a profile via a pod
-                await update.message.reply_text(
-                    "❌ You don't have a profile yet. Join a pod via a group chat to create one!"
-                )
+                await SimpleReplyStrategy(
+                    message_template="❌ You don't have a profile yet. Join a pod via a group chat to create one!",
+                ).execute(update, context)
                 return ConversationHandler.END
 
         chat_id = update.effective_chat.id
 
         if chat_id not in game_manager.pods:
-            await update.message.reply_text(
-                "❌ No pod exists for this group. Create one first using /pod"
-            )
+            await SimpleReplyStrategy(
+                message_template="❌ No pod exists for this group. Create one first using /pod"
+            ).execute(update, context)
             return ConversationHandler.END
 
         # attempt to retrieve the player's stats from the pod

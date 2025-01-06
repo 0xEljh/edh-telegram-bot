@@ -197,7 +197,7 @@ class GameSummaryReply(ReplyStrategy):
         game_summary = str(game)
         message = (
             f"Game summary:\n\n{game_summary}\n\n"
-            "<b>Type 'confirm' to finalize the game or 'cancel' to discard.</b>"
+            "<b>Reply 'confirm' to finalize the game or 'cancel' to discard.</b>"
             "\n---\n"
             "<i>Reply to this by tapping this message and clicking 'Reply'. I can't see messages that aren't replies to me!</i>"
         )

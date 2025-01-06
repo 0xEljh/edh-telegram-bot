@@ -2,9 +2,10 @@ from abc import ABC, abstractmethod
 from os import error
 from typing import Optional, Union, Callable, Dict, Type
 from telegram import Update, InlineKeyboardMarkup
-from telegram.error import BadRequest
+from telegram.error import BadRequest, NetworkError
 from telegram.ext import ContextTypes
 from dataclasses import dataclass
+import time
 
 
 class ContextStrategy(ABC):
@@ -53,13 +54,29 @@ class ReplyStrategy(ABC):
                 )
             except BadRequest as e:
                 pass
+            except NetworkError as e:
+                # retry after short delay in event of transient network error
+                time.sleep(0.5)
+                return await update.callback_query.edit_message_text(
+                    text=message, parse_mode=self.parse_mode, reply_markup=keyboard
+                )
+        try:        
+            return await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=message,
+                parse_mode=self.parse_mode,
+                reply_markup=keyboard,
+            )
+        except NetworkError as e:
+            # retry after short delay in event of transient network error
+            time.sleep(0.5)
+            return await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=message,
+                parse_mode=self.parse_mode,
+                reply_markup=keyboard,
+            )
 
-        return await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=message,
-            parse_mode=self.parse_mode,
-            reply_markup=keyboard,
-        )
 
     @abstractmethod
     async def execute(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

@@ -160,8 +160,8 @@ class GameHistoryReply(ReplyStrategy):
         if update.callback_query and update.callback_query.data.startswith(PAGE_PREFIX):
             current_page = int(update.callback_query.data[len(PAGE_PREFIX) :])
 
-        # Get player's games, filtered by pod if in a group chat
-        player_games = self.game_manager.get_player_games(player_id, chat_id)
+        # Get player's games, filtered by pod if in a pod chat
+        player_games = self.game_manager.get_player_games(player_id, chat_id if chat_id in self.game_manager.pods else None)
 
         player_games.sort(key=lambda g: g.created_at, reverse=True)
 
