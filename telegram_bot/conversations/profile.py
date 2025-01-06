@@ -24,11 +24,20 @@ from telegram_bot.strategies import (
     LoggingErrorStrategy,
     PlayerProfileReply,
 )
+import logging 
+
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 ENTER_NAME = 0
 ENTER_PHOTO = 1
 
 AVATAR_DIR = Path("data/avatars")
+os.makedirs(AVATAR_DIR, exist_ok=True)
 
 
 async def save_avatar(bot, photo, user_id: int, pod_id: int) -> str:
@@ -44,6 +53,7 @@ async def save_avatar(bot, photo, user_id: int, pod_id: int) -> str:
         The relative path to the saved avatar file
     """
     # Get the file from Telegram
+    logger.info(f"saving avatar for {user_id} from {pod_id}")
     file = await bot.get_file(photo.file_id)
 
     # Create filename using user_id

@@ -22,6 +22,9 @@ logging.basicConfig(
 
 dotenv.load_dotenv()
 
+# make a directory for data if not already there:
+os.makedirs("data", exist_ok=True)
+
 game_manager = GameManager(db_url="sqlite:///data/games.db")
 
 # Create the handlers
