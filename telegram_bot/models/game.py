@@ -123,8 +123,6 @@ class Pod:
 @dataclass
 class Game:
     """Represents a single EDH game."""
-
-    game_id: Optional[int] = None  # Default to None for auto-assignment
     pod_id: int
     created_at: datetime
     players: Dict[int, str] = field(default_factory=dict)  # telegram_id -> name mapping
@@ -133,6 +131,7 @@ class Game:
         default_factory=dict
     )  # eliminated_id -> eliminator_id
     finalized: bool = False
+    game_id: Optional[int] = None  # Default to None for auto-assignment
     _db_game: Optional[DBGame] = None
 
     def add_player(self, telegram_id: int, name: str):

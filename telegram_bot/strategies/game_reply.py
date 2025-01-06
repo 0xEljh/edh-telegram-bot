@@ -1,4 +1,4 @@
-bfrom typing import List, Dict
+from typing import List, Dict
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
 
