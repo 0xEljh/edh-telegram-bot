@@ -124,7 +124,7 @@ class Pod:
 class Game:
     """Represents a single EDH game."""
 
-    game_id: int
+    game_id: Optional[int] = None  # Default to None for auto-assignment
     pod_id: int
     created_at: datetime
     players: Dict[int, str] = field(default_factory=dict)  # telegram_id -> name mapping
@@ -154,12 +154,15 @@ class Game:
             self.eliminations[eliminated_id] = telegram_id
 
     def finalize(self, session: Session):
-        """Mark the game as finalized and save to database."""
+        """Save the game to database."""
         if not self._db_game:
             self._db_game = DBGame(
-                game_id=self.game_id, pod_id=self.pod_id, created_at=self.created_at
+                pod_id=self.pod_id, created_at=self.created_at
             )
-            session.add(self._db_game)
+            session.flush()  # Ensure `game_id` is assigned by the database
+
+            # Assign the auto-generated ID back to the instance
+            self.game_id = self._db_game.game_id
 
         # Add game results
         for telegram_id, outcome in self.outcomes.items():
@@ -326,24 +329,12 @@ class GameManager:
             for pod in self._session.query(DBPod).all()
         }
 
-    def create_game(self, pod_id: int, game_id: Optional[int] = None) -> Game:
+    def create_game(self, pod_id: int) -> Game:
         """Create a new game."""
         if not self._session.query(DBPod).filter_by(pod_id=pod_id).first():
             raise ValueError(f"Pod with ID {pod_id} does not exist")
 
-        if game_id is None:
-            # Find the next available game ID
-            max_id = (
-                self._session.query(DBGame.game_id)
-                .order_by(DBGame.game_id.desc())
-                .first()
-            )
-            game_id = (max_id[0] + 1) if max_id else 0
-
-        if self._session.query(DBGame).filter_by(game_id=game_id).first():
-            raise ValueError(f"Game with ID {game_id} already exists")
-
-        return Game(game_id=game_id, pod_id=pod_id, created_at=datetime.now())
+        return Game(pod_id=pod_id, created_at=datetime.now())
 
     def add_game(self, game: Game) -> None:
         """Add a completed game and update player statistics."""

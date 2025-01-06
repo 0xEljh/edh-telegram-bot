@@ -1,4 +1,4 @@
-from typing import List, Dict
+bfrom typing import List, Dict
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
 
@@ -197,7 +197,7 @@ class GameSummaryReply(ReplyStrategy):
         game_summary = str(game)
         message = (
             f"Game summary:\n\n{game_summary}\n\n"
-            "Type 'confirm' to finalize the game or 'cancel' to discard."
+            "<b>Type 'confirm' to finalize the game or 'cancel' to discard.</b>"
             "\n---\n"
             "<i>Reply to this by tapping this message and clicking 'Reply'. I can't see messages that aren't replies to me!</i>"
         )

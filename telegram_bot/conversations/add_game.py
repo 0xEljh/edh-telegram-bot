@@ -62,11 +62,11 @@ def create_game_conversation(game_manager: GameManager) -> ConversationHandler:
 
         if query.data == "done_adding_players":
             # TODO: re-add this condition
-            # if len(context.user_data["added_players"]) < 2:
-            #     await SimpleReplyStrategy(
-            #         "❌ At least 2 players are required for a game."
-            #     ).execute(update, context)
-            #     return await PlayerSelectionHandler(update, context)
+            if len(context.user_data["added_players"]) < 2:
+                await SimpleReplyStrategy(
+                    "❌ Sorry, no playing with yourself. At least 2 players are required for a game."
+                ).execute(update, context)
+                return await PlayerSelectionHandler(update, context)
             context.user_data["current_player_id"] = context.user_data["added_players"][
                 0
             ]
