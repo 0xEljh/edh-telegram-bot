@@ -17,6 +17,14 @@ class StatCardData:
     stat_name: str
     subtitle: str | None = None
 
+@dataclass
+class PlayerStatCardData:
+    name: str
+    avatar_path: str | None
+    stats: dict[str, float | int]
+    decorative_stat_value: int
+    decorative_stat_name: str
+    subtitle: str | None
 
 def draw_wrapped_text(
     draw: ImageDraw.ImageDraw,
@@ -258,3 +266,167 @@ def create_leaderboard_image(
         y_offset += card_height + spacing
 
     return image
+
+
+def create_player_stat_card(
+    data: PlayerStatCardData,
+    width: int = 450,
+    height: int = 300,
+) -> Image.Image:
+    """
+    Create a more detailed stat card, preserving the old implementation.
+    This version shows multiple stats and includes a decorative stat/badge
+    in the top-right corner.
+    """
+    # 1. Create the base card (RGBA if you want semi-transparency)
+    card = Image.new("RGBA", (width, height), color=(0, 0, 0))
+    draw = ImageDraw.Draw(card)
+
+    # 2. Draw the background rectangle
+    draw.rounded_rectangle(
+        [(0, 0), (width, height)],
+        radius=20,
+        fill=(30, 30, 30, 220),  # a slightly transparent dark background
+    )
+
+    # 3. Load fonts
+    try:
+        name_font = ImageFont.truetype(TICKERBIT_FONT_PATH, 24)
+        stat_font = ImageFont.truetype(TICKERBIT_FONT_PATH, 20)
+        badge_font = ImageFont.truetype(TICKERBIT_FONT_PATH, 18)
+    except OSError:
+        # fallback to default if Tickerbit isn't found
+        name_font = ImageFont.load_default()
+        stat_font = ImageFont.load_default()
+        badge_font = ImageFont.load_default()
+
+    # 4. Place the avatar on the left side
+    avatar_size = 80
+    avatar_x = 20
+    avatar_y = 40
+
+    if data.avatar_path and os.path.exists(data.avatar_path):
+        try:
+            avatar = Image.open(data.avatar_path).convert("RGBA")
+            avatar.thumbnail((avatar_size, avatar_size))
+            # Circular mask for a round avatar
+            mask = Image.new("L", avatar.size, 0)
+            mask_draw = ImageDraw.Draw(mask)
+            mask_draw.ellipse([(0, 0), avatar.size], fill=255)
+            card.paste(avatar, (avatar_x, avatar_y), mask)
+        except Exception:
+            # If the avatar fails to load, just draw a placeholder circle
+            draw.ellipse(
+                [avatar_x, avatar_y, avatar_x + avatar_size, avatar_y + avatar_size],
+                fill=(128, 128, 128, 180),
+            )
+    else:
+        # No avatar, placeholder circle
+        draw.ellipse(
+            [avatar_x, avatar_y, avatar_x + avatar_size, avatar_y + avatar_size],
+            fill=(128, 128, 128, 180),
+        )
+
+    # 5. Define a helper to draw text with a stroke (outline)
+    def draw_text_with_stroke(
+        xy: tuple[int, int],
+        text: str,
+        font: ImageFont.FreeTypeFont,
+        fill: tuple[int, int, int, int],
+        stroke_fill: tuple[int, int, int, int] = (0, 0, 0, 255),
+        stroke_width: int = 1,
+    ):
+        x, y = xy
+        for offset_x in range(-stroke_width, stroke_width + 1):
+            for offset_y in range(-stroke_width, stroke_width + 1):
+                draw.text((x + offset_x, y + offset_y), text, font=font, fill=stroke_fill)
+        draw.text((x, y), text, font=font, fill=fill)
+
+    # 6. Draw the player's name near the top
+    text_color = (255, 255, 255, 255)
+    stroke_color = (0, 0, 0, 255)
+
+    text_start_x = avatar_x + avatar_size + 20
+    text_y = 20
+
+    draw_text_with_stroke(
+        (text_start_x, text_y),
+        data.name,
+        font=name_font,
+        fill=text_color,
+        stroke_fill=stroke_color,
+        stroke_width=2,
+    )
+
+    # Move down a bit for stats
+    text_y += 40
+
+    # 7. Draw the stats (multiple lines)
+    # Convert each stat into a formatted string: "• label: value"
+    # Example: "• Games Played: 25"
+    stats_lines = []
+    for label, value in data.stats.items():
+        stats_lines.append(f"• {label}: {value}")
+
+    # We'll draw each line with a small line spacing
+    line_spacing = 5
+
+    for line in stats_lines:
+        draw_text_with_stroke(
+            (text_start_x, text_y),
+            line,
+            font=stat_font,
+            fill=text_color,
+            stroke_fill=stroke_color,
+            stroke_width=1,
+        )
+        # Get text size using getbbox() instead of getsize()
+        bbox = stat_font.getbbox(line)
+        text_y += (bbox[3] - bbox[1]) + line_spacing
+
+    # 8. Draw an optional subtitle below the stats
+    if data.subtitle:
+        text_y += 10
+        draw_text_with_stroke(
+            (text_start_x, text_y),
+            data.subtitle,
+            font=stat_font,
+            fill=(200, 200, 200, 255),
+            stroke_fill=(0, 0, 0, 255),
+            stroke_width=1,
+        )
+
+    # 9. Draw the decorative stat text in the top-right corner
+    # Center the decorative stat text
+    badge_text = str(data.decorative_stat_value)
+    bbox = badge_font.getbbox(badge_text)
+    text_width = bbox[2] - bbox[0]
+    text_height = bbox[3] - bbox[1]
+    
+    # Position in top-right corner with some padding
+    text_x = width - text_width - 20
+    text_y = 20
+    
+    draw_text_with_stroke(
+        (text_x, text_y),
+        badge_text,
+        font=badge_font,
+        fill=(255, 215, 0, 255),  # Gold color
+        stroke_fill=(0, 0, 0, 255),
+        stroke_width=2,
+    )
+
+    # Draw the decorative stat name under the stat value
+    bbox = badge_font.getbbox(data.decorative_stat_name)
+    label_width = bbox[2] - bbox[0]
+    label_x = text_x + (text_width - label_width) // 2
+    label_y = text_y + text_height + 4
+    
+    draw.text(
+        (label_x, label_y),
+        data.decorative_stat_name,
+        font=badge_font,
+        fill=(255, 255, 255, 255),
+    )
+
+    return card

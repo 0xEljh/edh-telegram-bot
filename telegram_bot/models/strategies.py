@@ -4,6 +4,7 @@ from typing import Optional, Union, Callable, Dict, Type
 from telegram import Update, InlineKeyboardMarkup
 from telegram.error import BadRequest, NetworkError
 from telegram.ext import ContextTypes
+from telegram_bot.utils import safe_edit_message
 from dataclasses import dataclass
 import time
 
@@ -49,17 +50,25 @@ class ReplyStrategy(ABC):
 
         if update.callback_query and update_message:
             try:
-                return await update.callback_query.edit_message_text(
-                    text=message, parse_mode=self.parse_mode, reply_markup=keyboard
+                return await safe_edit_message(
+                    message=update.callback_query.message,
+                    text=message,
+                    reply_markup=keyboard,
+                    parse_mode=self.parse_mode
                 )
             except BadRequest as e:
+                # Message content didn't change, ignore error
                 pass
             except NetworkError as e:
                 # retry after short delay in event of transient network error
                 time.sleep(0.5)
-                return await update.callback_query.edit_message_text(
-                    text=message, parse_mode=self.parse_mode, reply_markup=keyboard
+                return await safe_edit_message(
+                    message=update.callback_query.message,
+                    text=message,
+                    reply_markup=keyboard,
+                    parse_mode=self.parse_mode
                 )
+
         try:        
             return await context.bot.send_message(
                 chat_id=update.effective_chat.id,

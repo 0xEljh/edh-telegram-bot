@@ -553,20 +553,33 @@ class GameManager:
 
         return self._safe_query(query_func)
 
-    def get_player_games(self, telegram_id, pod_id=None) -> List[Game]:
-        """Get all games for a player, optionally filtered by pod."""
-        query = self._session.query(GameResult).join(GameResult.player)
-        query = query.filter(PodPlayer.telegram_id == telegram_id)
+    def get_player_games(self, telegram_id: int, pod_id: Optional[int] = None, since_date: Optional[datetime] = None) -> List[Game]:
+        """Get all games for a player, optionally filtered by pod and date.
+        
+        Args:
+            telegram_id: The player's Telegram ID
+            pod_id: Optional pod ID to filter games by
+            since_date: Optional date to only return games after this date
+            
+        Returns:
+            List of Game objects, sorted by creation date (newest first)
+        """
+        def query_func(session: Session) -> List[Game]:
+            query = (
+                session.query(DBGame)
+                .join(GameResult)
+                .filter(GameResult.player_id == telegram_id)
+            )
+            
+            if pod_id is not None:
+                query = query.filter(DBGame.pod_id == pod_id)
+                
+            if since_date is not None:
+                query = query.filter(DBGame.created_at >= since_date)
+                
+            return [Game.from_db_game(g) for g in query.all()]
 
-        if pod_id:
-            query = query.filter(PodPlayer.pod_id == pod_id)
-
-        games = []
-        for result in query.all():
-            game = self._session.query(DBGame).filter_by(game_id=result.game_id).first()
-            games.append(Game.from_db_game(game))
-
-        return games
+        return self._safe_query(query_func)
 
     def get_pod_player(self, telegram_id: int, pod_id: int) -> Optional[PlayerStats]:
         """Get a player by telegram_id and pod_id."""

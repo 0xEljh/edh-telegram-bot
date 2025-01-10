@@ -113,12 +113,13 @@ class OutcomeSelectionReply(ReplyStrategy):
         keyboard = self._create_keyboard(current_player_id)
         message = f"Select outcome for {player_name}:"
 
-        if update.callback_query:
-            await update.callback_query.edit_message_text(
-                text=message, reply_markup=keyboard
-            )
-        else:
-            await update.message.reply_text(text=message, reply_markup=keyboard)
+        await self._send_message(
+            update,
+            context,
+            message,
+            keyboard,
+            update_message=True if update.callback_query else False,
+        )
 
 
 class EliminationSelectionReply(ReplyStrategy):
@@ -176,12 +177,13 @@ class EliminationSelectionReply(ReplyStrategy):
             f"{eliminated_list}"
         )
 
-        if update.callback_query:
-            await update.callback_query.edit_message_text(
-                text=message, reply_markup=keyboard
-            )
-        else:
-            await update.message.reply_text(text=message, reply_markup=keyboard)
+        await self._send_message(
+            update,
+            context,
+            message,
+            keyboard,
+            update_message=True if update.callback_query else False,
+        )
 
 
 class GameSummaryReply(ReplyStrategy):
@@ -202,10 +204,6 @@ class GameSummaryReply(ReplyStrategy):
             "<i>Reply to this by tapping this message and clicking 'Reply'. I can't see messages that aren't replies to me!</i>"
         )
 
-        # if update.callback_query:
-        #     await update.callback_query.edit_message_text(text=message)
-        # else:
-        #     await update.message.reply_text(text=message)
         await self._send_message(
             update=update, context=context, message=message, keyboard=None
         )
