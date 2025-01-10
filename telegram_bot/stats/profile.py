@@ -33,7 +33,7 @@ def calculate_decorative_stat(
     weekly_games.sort(key=lambda g: g.created_at)
     
     if not weekly_games:
-        return 0, "Weekly Win Rate"
+        return "--%", "W/R (week)"
     
     # Calculate current streak
     current_streak = 0
@@ -64,7 +64,7 @@ def calculate_decorative_stat(
     # Check if player has highest win rate in pod
     weekly_top = False
     if pod_id:
-        active_players = game_manager.get_pod_members(pod_id)[0]
+        active_players = game_manager.get_pod_members(pod_id)
         weekly_top = True
         for other_id in active_players:
             if other_id == player_stats.telegram_id:
@@ -88,11 +88,11 @@ def calculate_decorative_stat(
     
     # Determine which stat to show
     if weekly_top:
-        return weekly_winrate, "Win Rate (Weekly #1)"
+        return f"{weekly_winrate:.1f}%", "W/R (week)"
     elif current_streak >= 2:
         if streak_type:  # Win streak
-            return current_streak, "Game Win Streak"
+            return current_streak, "Win Streak"
         else:  # Lose streak
-            return current_streak, "Game Lose Streak"
+            return current_streak, "Lose Streak"
     else:
-        return weekly_winrate, "Weekly Win Rate"
+        return f"{weekly_winrate:.1f}%", "W/R (week)"

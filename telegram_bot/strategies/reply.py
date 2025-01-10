@@ -101,6 +101,7 @@ class PlayerProfileReply(ReplyStrategy):
             self.game_manager,
             chat_id if chat_id in self.game_manager.pods else None
         )
+        
 
         # Create stat card
         player_data = PlayerStatCardData(
@@ -118,10 +119,11 @@ class PlayerProfileReply(ReplyStrategy):
             decorative_stat_value=stat_value,
             decorative_stat_name=stat_name,
             subtitle=(
-                f"🎮 Profile for {user_name} aka {player_stats.name}"
+                f"Profile for {user_name} aka {player_stats.name}"
                 if not chat_id or chat_id not in self.game_manager.pods
-                else f"🎮 Profile for {user_name}"
-            )
+                else f"Profile for {user_name}"
+            ),
+            avatar_url=None # TODO: add fallback avatar
         )
         
         # Generate image

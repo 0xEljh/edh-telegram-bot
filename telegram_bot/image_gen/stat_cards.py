@@ -21,6 +21,7 @@ class StatCardData:
 class PlayerStatCardData:
     name: str
     avatar_path: str | None
+    avatar_url: str | None
     stats: dict[str, float | int]
     decorative_stat_value: int
     decorative_stat_name: str
@@ -53,7 +54,8 @@ def draw_wrapped_text(
         # We'll keep splitting the line until it fits within max_width
         current_line = line
         while True:
-            w, h = draw.textsize(current_line, font=font)
+            bbox = font.getbbox(current_line)
+            w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
             if w <= max_width:
                 # Fits in the available width
                 wrapped_lines.append(current_line)
@@ -80,7 +82,8 @@ def draw_wrapped_text(
     y = start_y
     for line in wrapped_lines:
         draw.text((start_x, y), line, font=font, fill=fill)
-        line_height = font.getsize(line)[1]
+        bbox = font.getbbox(line)
+        line_height = bbox[3] - bbox[1]
         y += line_height + line_spacing
 
     # Return how far down we ended, in case you need to continue drawing below
@@ -157,11 +160,16 @@ def create_stat_card(
                 fill=(128, 128, 128, 180),
             )
     else:
-        # Placeholder circle
-        draw.ellipse(
-            [avatar_x, avatar_y, avatar_x + avatar_size, avatar_y + avatar_size],
-            fill=(128, 128, 128, 180),
-        )
+        # try
+        try:
+            # use avatar_url/telegram photo
+            pass
+        except Exception:
+            draw.ellipse(
+                [avatar_x, avatar_y, avatar_x + avatar_size, avatar_y + avatar_size],
+                fill=(128, 128, 128, 180),
+            )
+
 
     # Text positions
     text_start_x = avatar_x + avatar_size + 20
@@ -271,7 +279,7 @@ def create_leaderboard_image(
 def create_player_stat_card(
     data: PlayerStatCardData,
     width: int = 450,
-    height: int = 300,
+    height: int = 280,
 ) -> Image.Image:
     """
     Create a more detailed stat card, preserving the old implementation.
@@ -283,17 +291,18 @@ def create_player_stat_card(
     draw = ImageDraw.Draw(card)
 
     # 2. Draw the background rectangle
-    draw.rounded_rectangle(
-        [(0, 0), (width, height)],
-        radius=20,
-        fill=(30, 30, 30, 220),  # a slightly transparent dark background
-    )
+    # draw.rounded_rectangle(
+    #     [(0, 0), (width, height)],
+    #     radius=20,
+    #     fill=(30, 30, 30, 220),  # a slightly transparent dark background
+    # )
 
     # 3. Load fonts
     try:
         name_font = ImageFont.truetype(TICKERBIT_FONT_PATH, 24)
         stat_font = ImageFont.truetype(TICKERBIT_FONT_PATH, 20)
-        badge_font = ImageFont.truetype(TICKERBIT_FONT_PATH, 18)
+        badge_font = ImageFont.truetype(TICKERBIT_FONT_PATH, 14)
+        subtitle_font = ImageFont.load_default(12)
     except OSError:
         # fallback to default if Tickerbit isn't found
         name_font = ImageFont.load_default()
@@ -303,29 +312,62 @@ def create_player_stat_card(
     # 4. Place the avatar on the left side
     avatar_size = 80
     avatar_x = 20
-    avatar_y = 40
+    avatar_y = 60
+
+    def create_circular_mask(size):
+        mask = Image.new('L', (size, size), 0)
+        draw_mask = ImageDraw.Draw(mask)
+        draw_mask.ellipse((0, 0, size-1, size-1), fill=255)
+        return mask
+
+    # Create circular mask
+    mask = create_circular_mask(avatar_size)
 
     if data.avatar_path and os.path.exists(data.avatar_path):
         try:
-            avatar = Image.open(data.avatar_path).convert("RGBA")
-            avatar.thumbnail((avatar_size, avatar_size))
-            # Circular mask for a round avatar
-            mask = Image.new("L", avatar.size, 0)
-            mask_draw = ImageDraw.Draw(mask)
-            mask_draw.ellipse([(0, 0), avatar.size], fill=255)
-            card.paste(avatar, (avatar_x, avatar_y), mask)
-        except Exception:
-            # If the avatar fails to load, just draw a placeholder circle
+            # Load and resize avatar
+            avatar = Image.open(data.avatar_path)
+            avatar = avatar.convert('RGBA')
+            
+            # Calculate resize dimensions to maintain aspect ratio
+            ratio = min(avatar_size / avatar.width, avatar_size / avatar.height)
+            new_size = (int(avatar.width * ratio), int(avatar.height * ratio))
+            
+            # Resize maintaining aspect ratio
+            avatar = avatar.resize(new_size, Image.Resampling.LANCZOS)
+            
+            # Create a blank square image
+            square_avatar = Image.new('RGBA', (avatar_size, avatar_size), (0, 0, 0, 0))
+            
+            # Calculate position to center the resized image
+            paste_x = (avatar_size - new_size[0]) // 2
+            paste_y = (avatar_size - new_size[1]) // 2
+            
+            # Paste the resized image onto the square canvas
+            square_avatar.paste(avatar, (paste_x, paste_y))
+            
+            # Apply circular mask
+            square_avatar.putalpha(mask)
+            
+            # Paste the circular avatar
+            card.paste(square_avatar, (avatar_x, avatar_y), square_avatar)
+        except Exception as e:
+            # If avatar loading fails, draw placeholder circle
             draw.ellipse(
-                [avatar_x, avatar_y, avatar_x + avatar_size, avatar_y + avatar_size],
+                [avatar_x, avatar_y, avatar_x + avatar_size - 1, avatar_y + avatar_size - 1],
                 fill=(128, 128, 128, 180),
             )
     else:
-        # No avatar, placeholder circle
-        draw.ellipse(
-            [avatar_x, avatar_y, avatar_x + avatar_size, avatar_y + avatar_size],
-            fill=(128, 128, 128, 180),
-        )
+        # try
+        try:
+            # use avatar_url/telegram photo
+            pass
+        except Exception:
+            # Draw placeholder circle
+            draw.ellipse(
+                [avatar_x, avatar_y, avatar_x + avatar_size - 1, avatar_y + avatar_size - 1],
+                fill=(128, 128, 128, 180),
+            )
 
     # 5. Define a helper to draw text with a stroke (outline)
     def draw_text_with_stroke(
@@ -347,7 +389,7 @@ def create_player_stat_card(
     stroke_color = (0, 0, 0, 255)
 
     text_start_x = avatar_x + avatar_size + 20
-    text_y = 20
+    text_y = 40
 
     draw_text_with_stroke(
         (text_start_x, text_y),
@@ -380,20 +422,22 @@ def create_player_stat_card(
             stroke_fill=stroke_color,
             stroke_width=1,
         )
-        # Get text size using getbbox() instead of getsize()
         bbox = stat_font.getbbox(line)
-        text_y += (bbox[3] - bbox[1]) + line_spacing
+        line_height = bbox[3] - bbox[1]
+        text_y += line_height + line_spacing
 
     # 8. Draw an optional subtitle below the stats
     if data.subtitle:
         text_y += 10
-        draw_text_with_stroke(
-            (text_start_x, text_y),
+        draw_wrapped_text(
+            draw,
             data.subtitle,
-            font=stat_font,
+            font=subtitle_font,
+            max_width=width/2,
+            start_x=text_start_x,
+            start_y=text_y,
+            line_spacing=line_spacing,
             fill=(200, 200, 200, 255),
-            stroke_fill=(0, 0, 0, 255),
-            stroke_width=1,
         )
 
     # 9. Draw the decorative stat text in the top-right corner
@@ -404,8 +448,8 @@ def create_player_stat_card(
     text_height = bbox[3] - bbox[1]
     
     # Position in top-right corner with some padding
-    text_x = width - text_width - 20
-    text_y = 20
+    text_x = width - text_width - 40
+    text_y = 60
     
     draw_text_with_stroke(
         (text_x, text_y),

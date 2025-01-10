@@ -568,7 +568,8 @@ class GameManager:
             query = (
                 session.query(DBGame)
                 .join(GameResult)
-                .filter(GameResult.player_id == telegram_id)
+                .join(PodPlayer)
+                .filter(PodPlayer.telegram_id == telegram_id)
             )
             
             if pod_id is not None:
