@@ -20,11 +20,12 @@ def create_start_handler() -> CommandHandler:
         "📝 /profile - Create or view your player profile\n"
         "   • To include a player in a game, that player must already have a profile.\n"
         "   • You'll need to do this for each pod you're in. Your profile is unique to each pod.\n"
+        "   • Your name and profile picture are also final for now.\n"
         "   • After your profile is created, use this to see your accumulated game statistics\n\n"
         "🎮 /game - Record a new game\n\n"
         "📊 /history - View past recorded games\n\n"
         "Ready to begin? Start by inviting me to your pod's group chat and then using /pod\n\n"
-        "<i>Stuck? Use /cancel to exit any conversation and then try again. If the issue still persists, contact me on telegram via @elijahngsy</i>\n"
+        "<i>Stuck? Use /cancel to exit any conversation and then try again. If the issue still persists, contact me on telegram via /help</i>\n"
         "<i>Wish to record your games with different play groups? You can add me into the chat with each of your different play groups and create a pod. You will need to create a player profile for each new pod you are in. </i>\n"
         "Tip: using /profile and /history in a private chat with me will show your stats/recorded games across all pods\n"
     )

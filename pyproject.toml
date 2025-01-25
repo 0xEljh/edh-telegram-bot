@@ -16,6 +16,7 @@ pillow = "^11.1.0"
 
 [tool.poetry.group.dev.dependencies]
 black = "^23.7.0"
+prettytable = "^3.13.0"
 
 
 [build-system]

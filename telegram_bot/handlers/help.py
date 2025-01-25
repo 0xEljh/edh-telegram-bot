@@ -5,7 +5,7 @@ from telegram_bot.strategies import SimpleReplyStrategy
 
 def create_help_handler() -> CommandHandler:
     # direct people to my telegram and github
-    telegram = "https://t.me/elijahngsy"
+    telegram = "@elijahngsy"
     github = "https://github.com/0xEljh/edh-telegram-bot"
     message = (
         "Here are the available commands:\n\n"
