@@ -32,7 +32,7 @@ class PodPlayer(Base):
 class Game(Base):
     __tablename__ = 'games'
     
-    game_id = Column(Integer, primary_key=True)
+    game_id = Column(Integer, primary_key=True, autoincrement=True)
     pod_id = Column(Integer, ForeignKey('pods.pod_id'), nullable=False)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     

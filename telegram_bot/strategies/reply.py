@@ -4,6 +4,9 @@ from telegram.ext import ContextTypes
 from datetime import datetime
 
 from telegram_bot.models import GameManager, Game, ReplyStrategy
+from telegram_bot.image_gen.stat_cards import PlayerStatCardData, create_player_stat_card
+from telegram_bot.stats.profile import calculate_decorative_stat
+from io import BytesIO
 
 GAMES_PER_PAGE = 3
 PAGE_PREFIX = "page_"
@@ -92,6 +95,44 @@ class PlayerProfileReply(ReplyStrategy):
             else 0
         )
 
+        # Calculate decorative stat
+        stat_value, stat_name = calculate_decorative_stat(
+            player_stats,
+            self.game_manager,
+            chat_id if chat_id in self.game_manager.pods else None
+        )
+        
+
+        # Create stat card
+        player_data = PlayerStatCardData(
+            name=player_stats.name,
+            avatar_path=self.game_manager.get_player_avatar(user_id, chat_id),
+            stats={
+                "Games Played": player_stats.games_played,
+                "Wins": player_stats.wins,
+                "Losses": player_stats.losses,
+                "Draws": player_stats.draws,
+                "Total Kills": player_stats.eliminations,
+                "Win Rate": f"{(player_stats.wins / player_stats.games_played * 100):.1f}%" if player_stats.games_played > 0 else "0%",
+                "Average Kills": f"{(player_stats.eliminations / player_stats.games_played):.1f}" if player_stats.games_played > 0 else "0",
+            },
+            decorative_stat_value=stat_value,
+            decorative_stat_name=stat_name,
+            subtitle=(
+                f"Profile for {user_name} aka {player_stats.name}"
+                if not chat_id or chat_id not in self.game_manager.pods
+                else f"Profile for {user_name}"
+            ),
+            avatar_url=None # TODO: add fallback avatar
+        )
+        
+        # Generate image
+        card = create_player_stat_card(player_data)
+        img_bytes = BytesIO()
+        card.save(img_bytes, format='PNG')
+        img_bytes.seek(0)
+
+        # Create text message with stats
         message = (
             f"🎮 <b>Player Profile for {user_name} aka {player_stats.name}"
             if not chat_id or chat_id not in self.game_manager.pods
@@ -109,7 +150,13 @@ class PlayerProfileReply(ReplyStrategy):
             f"• Average Kills: {avg_eliminations:.1f}\n"
         )
 
-        await self._send_message(update, context, message, None)
+        # Send image first, then text
+        await context.bot.send_photo(
+            chat_id=update.effective_chat.id,
+            photo=img_bytes,
+            # caption=message,
+            parse_mode="HTML"
+        )
 
 
 class GameHistoryReply(ReplyStrategy):
@@ -160,8 +207,8 @@ class GameHistoryReply(ReplyStrategy):
         if update.callback_query and update.callback_query.data.startswith(PAGE_PREFIX):
             current_page = int(update.callback_query.data[len(PAGE_PREFIX) :])
 
-        # Get player's games, filtered by pod if in a group chat
-        player_games = self.game_manager.get_player_games(player_id, chat_id)
+        # Get player's games, filtered by pod if in a pod chat
+        player_games = self.game_manager.get_player_games(player_id, chat_id if chat_id in self.game_manager.pods else None)
 
         player_games.sort(key=lambda g: g.created_at, reverse=True)
 

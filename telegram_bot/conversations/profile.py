@@ -24,11 +24,20 @@ from telegram_bot.strategies import (
     LoggingErrorStrategy,
     PlayerProfileReply,
 )
+import logging 
+
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 ENTER_NAME = 0
 ENTER_PHOTO = 1
 
 AVATAR_DIR = Path("data/avatars")
+os.makedirs(AVATAR_DIR, exist_ok=True)
 
 
 async def save_avatar(bot, photo, user_id: int, pod_id: int) -> str:
@@ -44,6 +53,7 @@ async def save_avatar(bot, photo, user_id: int, pod_id: int) -> str:
         The relative path to the saved avatar file
     """
     # Get the file from Telegram
+    logger.info(f"saving avatar for {user_id} from {pod_id}")
     file = await bot.get_file(photo.file_id)
 
     # Create filename using user_id
@@ -52,6 +62,7 @@ async def save_avatar(bot, photo, user_id: int, pod_id: int) -> str:
 
     # Download and save the file
     await file.download_to_drive(custom_path=str(filepath))
+    logger.info(f"Avatar saved at {filepath}")
 
     return str(filepath)
 
@@ -102,17 +113,17 @@ def create_profile_conversation(game_manager: GameManager) -> ConversationHandle
                 return await StatsHandler(update, context)
             else:
                 # if player doesn't exist, tell them to create a profile via a pod
-                await update.message.reply_text(
-                    "❌ You don't have a profile yet. Join a pod via a group chat to create one!"
-                )
+                await SimpleReplyStrategy(
+                    message_template="❌ You don't have a profile yet. Join a pod via a group chat to create one!",
+                ).execute(update, context)
                 return ConversationHandler.END
 
         chat_id = update.effective_chat.id
 
         if chat_id not in game_manager.pods:
-            await update.message.reply_text(
-                "❌ No pod exists for this group. Create one first using /pod"
-            )
+            await SimpleReplyStrategy(
+                message_template="❌ No pod exists for this group. Create one first using /pod"
+            ).execute(update, context)
             return ConversationHandler.END
 
         # attempt to retrieve the player's stats from the pod
@@ -129,10 +140,11 @@ def create_profile_conversation(game_manager: GameManager) -> ConversationHandle
         update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> str:
         # Store the name in context for later use
-        context.user_data["profile_name"] = update.message.text.strip()
+        profile_name = update.message.text.strip()
+        context.user_data["profile_name"] = profile_name
 
         await update.message.reply_text(
-            "Great name! 📸 Now, you can optionally send me a photo for your profile, or send /skip to continue without one."
+            f"Great name, {profile_name}! 📸 Now, you can optionally send me a photo for your profile, or send /skip to continue without one."
         )
         return ENTER_PHOTO
 
@@ -141,6 +153,13 @@ def create_profile_conversation(game_manager: GameManager) -> ConversationHandle
     ) -> str:
         chat_id = update.effective_chat.id
         name = context.user_data["profile_name"]
+
+        if not name:
+            logger.error("No name stored in user_data when expecting to create a profile.")
+            await update.message.reply_text(
+                "❌ Something went wrong. Please start over with /profile."
+            )
+            return ConversationHandler.END
 
         # Get the smallest usable photo (we don't need high resolution)
         # Telegram sends multiple sizes, first is smallest
@@ -151,6 +170,8 @@ def create_profile_conversation(game_manager: GameManager) -> ConversationHandle
         avatar_path = await save_avatar(
             context.bot, photo, update.effective_user.id, chat_id
         )
+
+        logger.info(f"Attempting to create profile for {update.effective_user.id} with name='{name}'")
 
         game_manager.create_player(
             name=name,
@@ -170,6 +191,15 @@ def create_profile_conversation(game_manager: GameManager) -> ConversationHandle
         chat_id = update.effective_chat.id
         name = context.user_data["profile_name"]
 
+        if not name:
+            logger.error("No name stored in user_data when expecting to create a profile.")
+            await update.message.reply_text(
+                "❌ Something went wrong. Please start over with /profile."
+            )
+            return ConversationHandler.END
+
+        logger.info(f"Attempting to create profile for {update.effective_user.id} with name='{name}'")
+
         # Try to get user's Telegram profile photo
         user_profile_photos = await context.bot.get_user_profile_photos(
             user_id=update.effective_user.id, limit=1
@@ -182,16 +212,48 @@ def create_profile_conversation(game_manager: GameManager) -> ConversationHandle
             avatar_path = await save_avatar(
                 context.bot, photo, update.effective_user.id, chat_id
             )
-
-        game_manager.create_player(
-            name=name,
-            telegram_id=update.effective_user.id,
-            pod_id=chat_id,
-            avatar_url=avatar_path,
-        )
+        try:
+            game_manager.create_player(
+                name=name,
+                telegram_id=update.effective_user.id,
+                pod_id=chat_id,
+                avatar_url=avatar_path,
+            )
+        except Exception as e:
+            logger.exception("Failed to create player profile without a custom photo.")
+            await update.message.reply_text(
+                "❌ Something went wrong while creating your profile. Please try again."
+            )
+            return ConversationHandler.END
 
         await update.message.reply_text(
             f"✨ Welcome, {name}! Your profile has been created. You can now participate in games!"
+        )
+        return ConversationHandler.END
+    
+    async def handle_unexpected_file(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> int:
+        """Handle unexpected file types in the ENTER_PHOTO state."""
+        logger.warning("User sent an unexpected file type instead of a photo.")
+        await update.message.reply_text(
+            "❌ I only accept photos here! Please either send a photo or use /skip."
+        )
+        return ENTER_PHOTO
+
+
+    def _reset_user_data(context):
+        # remove name and photo
+        if "profile_name" in context.user_data:
+            del context.user_data["profile_name"]
+
+    
+    async def cancel_profile_creation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Cancel profile creation process."""
+        logger.info("Profile creation conversation canceled by user.")
+        _reset_user_data(context)
+        await update.message.reply_text(
+            "❌ Profile creation cancelled. Use /profile to try again."
         )
         return ConversationHandler.END
 
@@ -201,14 +263,19 @@ def create_profile_conversation(game_manager: GameManager) -> ConversationHandle
             ENTER_NAME: [
                 MessageHandler(
                     filters.TEXT & ~filters.COMMAND, receive_name_and_prompt_photo
-                )
+                ),
+                CommandHandler("profile", cancel_profile_creation),  # Cancel if user hits /profile again
             ],
             ENTER_PHOTO: [
                 MessageHandler(filters.PHOTO, receive_photo_and_create_profile),
                 CommandHandler("skip", skip_photo_and_create_profile),
+                MessageHandler(~filters.COMMAND & ~filters.PHOTO, handle_unexpected_file),
+                CommandHandler("profile", cancel_profile_creation),  # Cancel if user hits /profile again
             ],
         },
-        fallbacks=[],
+        fallbacks=[
+            CommandHandler("cancel", cancel_profile_creation)
+        ],
         per_chat=True,
         per_user=True,
     )

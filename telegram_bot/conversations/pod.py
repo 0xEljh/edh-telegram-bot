@@ -72,21 +72,24 @@ def create_pod_conversation(game_manager: GameManager) -> ConversationHandler:
                         "<i>They can join using /profile</i>"
                     )
 
-                await update.message.reply_text(message, parse_mode="HTML")
+                await SimpleReplyStrategy(message_template=message, parse_mode="HTML").execute(update, context)
             except Exception as e:
                 # Fallback to basic message if we can't get member count
-                await update.message.reply_text(
+                await SimpleReplyStrategy(
                     f"This group chat's pod, {pod.name}, has already been created. Use /profile to add yourself to this pod."
-                )
+                ).execute(update, context)
             return ConversationHandler.END
 
         chat_id = update.effective_chat.id
 
         if chat_id in game_manager.pods:
             pod = game_manager.pods[chat_id]
-            await update.message.reply_text(
-                f"This group chat's pod, {pod.name}, has already been created. Use /profile to add yourself to this pod."
-            )
+            await SimpleReplyStrategy(
+                message_template=(
+                    f"This group chat's pod, {pod.name}, has already been created. Use /profile to add yourself to this pod."
+                ),
+                parse_mode="HTML",
+            ).execute(update, context)
             return ConversationHandler.END
 
         await SimpleReplyStrategy(
@@ -117,12 +120,12 @@ def create_pod_conversation(game_manager: GameManager) -> ConversationHandler:
                     f"Your pod, {pod.name}, already exists."
                 )
             else:
-                await update.message.reply_text(f"Error creating pod: {str(e)}")
+                await SimpleReplyStrategy(f"Error creating pod: {str(e)}").execute(update, context)
 
         return ConversationHandler.END
 
     async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        await update.message.reply_text("Pod creation cancelled.")
+        await SimpleReplyStrategy("Pod creation cancelled.").execute(update, context)
         return ConversationHandler.END
 
     return ConversationHandler(

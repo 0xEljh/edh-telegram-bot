@@ -110,21 +110,39 @@ class Pod:
     def remove_member(self, user_id: int):
         self.members.discard(user_id)
 
-    def to_dict(self):
-        return {"id": self.id, "name": self.name, "members": list(self.members)}
+    def to_dict(self) -> dict:
+        """Convert Pod to a dictionary for serialization."""
+        return {
+            "id": self.id,
+            "name": self.name,
+            "members": list(self.members),
+        }
 
     @classmethod
-    def from_dict(cls, data: dict):
-        pod = cls(id=data["id"], name=data["name"])
-        pod.members = set(data["members"])
-        return pod
+    def from_dict(cls, data: dict) -> "Pod":
+        """Create Pod from a dictionary."""
+        return cls(
+            id=data["id"],
+            name=data["name"],
+            members=set(data.get("members", [])),
+        )
+
+    @classmethod
+    def from_db_pod(cls, db_pod: DBPod) -> "Pod":
+        """Create Pod from a database Pod model."""
+        return cls(
+            id=db_pod.pod_id,
+            name=db_pod.name,
+            members=set(player.telegram_id for player in db_pod.players)
+        )
+
+    def __str__(self) -> str:
+        return f"Pod(id={self.id}, name={self.name}, members={len(self.members)})"
 
 
 @dataclass
 class Game:
     """Represents a single EDH game."""
-
-    game_id: int
     pod_id: int
     created_at: datetime
     players: Dict[int, str] = field(default_factory=dict)  # telegram_id -> name mapping
@@ -133,6 +151,7 @@ class Game:
         default_factory=dict
     )  # eliminated_id -> eliminator_id
     finalized: bool = False
+    game_id: Optional[int] = None  # Default to None for auto-assignment
     _db_game: Optional[DBGame] = None
 
     def add_player(self, telegram_id: int, name: str):
@@ -154,52 +173,88 @@ class Game:
             self.eliminations[eliminated_id] = telegram_id
 
     def finalize(self, session: Session):
-        """Mark the game as finalized and save to database."""
-        if not self._db_game:
-            self._db_game = DBGame(
-                game_id=self.game_id, pod_id=self.pod_id, created_at=self.created_at
-            )
-            session.add(self._db_game)
+        """Save the game to database."""
+        if self.finalized:
+            return  # Already finalized, no need to do it again
+            
+        if not self.outcomes:
+            raise ValueError("Cannot finalize game with no outcomes recorded")
+            
+        # All database operations should be in the same transaction
+        try:
+            # Create or get the game record
+            if not self._db_game:
+                self._db_game = DBGame(
+                    pod_id=self.pod_id, created_at=self.created_at
+                )
+                session.add(self._db_game)
+                session.flush()  # Get the game_id
+                
+                if not self._db_game.game_id:
+                    raise ValueError("Failed to generate game_id")
+                    
+                self.game_id = self._db_game.game_id
 
-        # Add game results
-        for telegram_id, outcome in self.outcomes.items():
-            player = (
-                session.query(PodPlayer)
-                .filter_by(pod_id=self.pod_id, telegram_id=telegram_id)
-                .first()
-            )
-            if not player:
-                raise ValueError(f"Player {telegram_id} not found in pod {self.pod_id}")
+            # Add all game results at once
+            results = []
+            for telegram_id, outcome in self.outcomes.items():
+                player = (
+                    session.query(PodPlayer)
+                    .filter_by(pod_id=self.pod_id, telegram_id=telegram_id)
+                    .first()
+                )
+                if not player:
+                    raise ValueError(f"Player {telegram_id} not found in pod {self.pod_id}")
 
-            result = GameResult(
-                game_id=self.game_id,
-                player_id=player.pods_player_id,
-                outcome=outcome.value,
-            )
-            session.add(result)
+                results.append(
+                    GameResult(
+                        game_id=self.game_id,
+                        player_id=player.pods_player_id,
+                        outcome=outcome.value,
+                    )
+                )
+            
+            # Bulk insert results
+            if results:
+                session.bulk_save_objects(results)
 
-        # Add eliminations
-        for eliminated_id, eliminator_id in self.eliminations.items():
-            eliminated = (
-                session.query(PodPlayer)
-                .filter_by(pod_id=self.pod_id, telegram_id=eliminated_id)
-                .first()
-            )
-            eliminator = (
-                session.query(PodPlayer)
-                .filter_by(pod_id=self.pod_id, telegram_id=eliminator_id)
-                .first()
-            )
+            # Add all eliminations at once
+            eliminations = []
+            for eliminated_id, eliminator_id in self.eliminations.items():
+                eliminated = (
+                    session.query(PodPlayer)
+                    .filter_by(pod_id=self.pod_id, telegram_id=eliminated_id)
+                    .first()
+                )
+                eliminator = (
+                    session.query(PodPlayer)
+                    .filter_by(pod_id=self.pod_id, telegram_id=eliminator_id)
+                    .first()
+                )
+                
+                if not eliminated or not eliminator:
+                    raise ValueError(
+                        f"Players not found - Eliminated: {eliminated_id}, Eliminator: {eliminator_id}"
+                    )
 
-            elimination = Elimination(
-                game_id=self.game_id,
-                eliminator_id=eliminator.pods_player_id,
-                eliminated_id=eliminated.pods_player_id,
-            )
-            session.add(elimination)
+                eliminations.append(
+                    Elimination(
+                        game_id=self.game_id,
+                        eliminator_id=eliminator.pods_player_id,
+                        eliminated_id=eliminated.pods_player_id,
+                    )
+                )
+            
+            # Bulk insert eliminations
+            if eliminations:
+                session.bulk_save_objects(eliminations)
 
-        session.commit()
-        self.finalized = True
+            session.flush()  # Ensure all changes are valid
+            self.finalized = True
+            
+        except Exception as e:
+            # session.rollback() # currently redundant (rollback in game manager level)
+            raise RuntimeError(f"Failed to finalize game: {str(e)}") from e
 
     @classmethod
     def from_db_game(cls, db_game: DBGame) -> "Game":
@@ -307,48 +362,88 @@ class GameManager:
         """Initialize the game manager with a database connection."""
         self.Session = init_db(db_url)
         self._session = self.Session()
+        
+    def _reset_session(self):
+        """Reset the session if it's in an invalid state."""
+        if self._session is not None:
+            try:
+                self._session.close()
+            except:
+                pass
+        self._session = self.Session()
 
-    @property
-    def games(self) -> Dict[int, Game]:
-        """Get all games."""
-        return self._session.query(DBGame).all()
+    def _safe_commit(self):
+        """Safely commit changes and handle any errors."""
+        try:
+            self._session.commit()
+        except Exception as e:
+            self._session.rollback()
+            self._reset_session()
+            raise e
 
-    @property
-    def players(self) -> Dict[int, Dict[int, PlayerStats]]:
-        """Get all players."""
-        return self._session.query(PodPlayer).all()
+    def _safe_query(self, query_func):
+        """Execute a query function with automatic session recovery."""
+        try:
+            return query_func(self._session)
+        except Exception as e:
+            self._session.rollback()
+            self._reset_session()
+            # Try one more time with fresh session
+            try:
+                return query_func(self._session)
+            except Exception as e2:
+                self._session.rollback()
+                raise RuntimeError(f"Query failed after session reset: {str(e2)}") from e2
 
     @property
     def pods(self) -> Dict[int, Pod]:
         """Get all pods."""
-        return {
-            pod.pod_id: Pod(id=pod.pod_id, name=pod.name, members=pod.players)
-            for pod in self._session.query(DBPod).all()
-        }
+        def query_func(session):
+            return {
+                pod.pod_id: Pod.from_db_pod(pod)
+                for pod in session.query(DBPod).all()
+            }
+        return self._safe_query(query_func)
 
-    def create_game(self, pod_id: int, game_id: Optional[int] = None) -> Game:
+    def add_game(self, game: Game):
+        """Add a completed game and update player statistics."""
+        try:
+            with self._session.begin_nested():  # Create a savepoint
+                # First validate that all players exist
+                for telegram_id in game.players:
+                    player = (
+                        self._session.query(PodPlayer)
+                        .filter_by(pod_id=game.pod_id, telegram_id=telegram_id)
+                        .first()
+                    )
+                    if not player:
+                        raise ValueError(f"Player {telegram_id} not found in pod {game.pod_id}")
+
+                # Then validate all eliminations reference valid players
+                for eliminated_id, eliminator_id in game.eliminations.items():
+                    if eliminated_id not in game.players:
+                        raise ValueError(f"Eliminated player {eliminated_id} is not in this game")
+                    if eliminator_id not in game.players:
+                        raise ValueError(f"Eliminator {eliminator_id} is not in this game")
+
+                # Now try to finalize the game
+                game.finalize(self._session)
+                self._session.flush()  # Ensure all changes are valid
+
+            # If we get here, commit the transaction
+            self._safe_commit()
+
+        except Exception as e:
+            self._session.rollback()
+            self._reset_session()
+            raise RuntimeError(f"Failed to add game: {str(e)}") from e
+
+    def create_game(self, pod_id: int) -> Game:
         """Create a new game."""
         if not self._session.query(DBPod).filter_by(pod_id=pod_id).first():
             raise ValueError(f"Pod with ID {pod_id} does not exist")
 
-        if game_id is None:
-            # Find the next available game ID
-            max_id = (
-                self._session.query(DBGame.game_id)
-                .order_by(DBGame.game_id.desc())
-                .first()
-            )
-            game_id = (max_id[0] + 1) if max_id else 0
-
-        if self._session.query(DBGame).filter_by(game_id=game_id).first():
-            raise ValueError(f"Game with ID {game_id} already exists")
-
-        return Game(game_id=game_id, pod_id=pod_id, created_at=datetime.now())
-
-    def add_game(self, game: Game) -> None:
-        """Add a completed game and update player statistics."""
-        # Ensure game is finalized in database
-        game.finalize(self._session)
+        return Game(pod_id=pod_id, created_at=datetime.now())
 
     def create_pod(self, pod_id: int, name: str) -> Pod:
         """Create a new pod."""
@@ -357,7 +452,7 @@ class GameManager:
 
         db_pod = DBPod(pod_id=pod_id, name=name)
         self._session.add(db_pod)
-        self._session.commit()
+        self._safe_commit()
 
         pod = Pod(id=pod_id, name=name)
         # self.pods[pod_id] = pod
@@ -398,7 +493,7 @@ class GameManager:
             telegram_id=telegram_id, name=name, pod_id=pod_id, avatar_url=avatar_url
         )
         self._session.add(pod_player)
-        self._session.commit()
+        self._safe_commit()
 
         player_stats = PlayerStats(telegram_id=telegram_id, name=name)
 
@@ -417,58 +512,75 @@ class GameManager:
         self, telegram_id: int, pod_id: int, since_date: Optional[datetime] = None
     ) -> Optional[PlayerStats]:
         """Get a player's statistics by telegram_id and pod_id."""
-        player = (
-            self._session.query(PodPlayer)
-            .filter_by(telegram_id=telegram_id, pod_id=pod_id)
-            .first()
-        )
-        if not player:
-            return None
-
-        stats = PlayerStats(telegram_id=telegram_id, name=player.name)
-
-        query = (
-            self._session.query(GameResult)
-            .join(GameResult.player)
-            .filter(
-                PodPlayer.pod_id == pod_id,
-                PodPlayer.pods_player_id == GameResult.player_id,
-                PodPlayer.telegram_id == telegram_id,
+        def query_func(session):
+            player = (
+                session.query(PodPlayer)
+                .filter_by(telegram_id=telegram_id, pod_id=pod_id)
+                .first()
             )
-        )
+            if not player:
+                return None
 
-        if since_date:
-            query = query.filter(DBGame.created_at >= since_date)
+            stats = PlayerStats(telegram_id=telegram_id, name=player.name)
 
-        for result in query.all():
-            eliminations = self._session.query(Elimination).filter(
-                Elimination.game_id == result.game_id,
-                Elimination.eliminator_id == player.pods_player_id,
-            )
-            if since_date:
-                eliminations = eliminations.join(DBGame).filter(
-                    DBGame.created_at >= since_date
+            query = (
+                session.query(GameResult)
+                .join(GameResult.player)
+                .filter(
+                    PodPlayer.pod_id == pod_id,
+                    PodPlayer.pods_player_id == GameResult.player_id,
+                    PodPlayer.telegram_id == telegram_id,
                 )
-            elim_count = eliminations.count()
+            )
 
-            stats.update_from_game(GameOutcome(result.outcome), eliminations=elim_count)
+            if since_date:
+                query = query.join(GameResult.game).filter(DBGame.created_at >= since_date)
 
-        return stats
+            for result in query.all():
+                eliminations = session.query(Elimination).filter(
+                    Elimination.game_id == result.game_id,
+                    Elimination.eliminator_id == player.pods_player_id,
+                )
+                if since_date:
+                    eliminations = eliminations.join(Elimination.game).filter(
+                        DBGame.created_at >= since_date
+                    )
+                elim_count = eliminations.count()
 
-    def get_player_games(self, telegram_id, pod_id=None) -> List[Game]:
-        """Get all games for a player, optionally filtered by pod."""
-        query = self._session.query(GameResult).join(GameResult.player)
-        query = query.filter(PodPlayer.telegram_id == telegram_id)
+                stats.update_from_game(GameOutcome(result.outcome), eliminations=elim_count)
 
-        if pod_id:
-            query = query.filter(PodPlayer.pod_id == pod_id)
+            return stats
 
-        games = []
-        for result in query.all():
-            game = self._session.query(DBGame).filter_by(game_id=result.game_id).first()
-            games.append(Game.from_db_game(game))
+        return self._safe_query(query_func)
 
-        return games
+    def get_player_games(self, telegram_id: int, pod_id: Optional[int] = None, since_date: Optional[datetime] = None) -> List[Game]:
+        """Get all games for a player, optionally filtered by pod and date.
+        
+        Args:
+            telegram_id: The player's Telegram ID
+            pod_id: Optional pod ID to filter games by
+            since_date: Optional date to only return games after this date
+            
+        Returns:
+            List of Game objects, sorted by creation date (newest first)
+        """
+        def query_func(session: Session) -> List[Game]:
+            query = (
+                session.query(DBGame)
+                .join(GameResult)
+                .join(PodPlayer)
+                .filter(PodPlayer.telegram_id == telegram_id)
+            )
+            
+            if pod_id is not None:
+                query = query.filter(DBGame.pod_id == pod_id)
+                
+            if since_date is not None:
+                query = query.filter(DBGame.created_at >= since_date)
+                
+            return [Game.from_db_game(g) for g in query.all()]
+
+        return self._safe_query(query_func)
 
     def get_pod_player(self, telegram_id: int, pod_id: int) -> Optional[PlayerStats]:
         """Get a player by telegram_id and pod_id."""
@@ -490,20 +602,13 @@ class GameManager:
         if not player_stats:
             return None
 
-        # Get all pod stats for this player
-        pod_stats = self.players[telegram_id]
-        if not pod_stats:
-            return None
-
-        # # Take name from any pod (this would be ignored later anyway)
-        # any_stats = next(iter(pod_stats.values()))
-        # aggregated = PlayerStats(telegram_id=telegram_id, name=any_stats.name)
+        # Take name from any pod (this would be ignored later anyway)
         aggregated = PlayerStats(
             telegram_id=telegram_id, name=next(iter(player_stats.values())).name
         )
 
         # Aggregate stats across all pods
-        for stats in pod_stats.values():
+        for stats in player_stats.values():
             aggregated.wins += stats.wins
             aggregated.losses += stats.losses
             aggregated.draws += stats.draws

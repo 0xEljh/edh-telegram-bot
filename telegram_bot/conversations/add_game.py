@@ -61,12 +61,11 @@ def create_game_conversation(game_manager: GameManager) -> ConversationHandler:
         await query.answer()
 
         if query.data == "done_adding_players":
-            # TODO: re-add this condition
-            # if len(context.user_data["added_players"]) < 2:
-            #     await SimpleReplyStrategy(
-            #         "❌ At least 2 players are required for a game."
-            #     ).execute(update, context)
-            #     return await PlayerSelectionHandler(update, context)
+            if len(context.user_data["added_players"]) < 2:
+                await SimpleReplyStrategy(
+                    "❌ Sorry, no playing with yourself. At least 2 players are required for a game."
+                ).execute(update, context)
+                return await PlayerSelectionHandler(update, context)
             context.user_data["current_player_id"] = context.user_data["added_players"][
                 0
             ]
@@ -114,16 +113,17 @@ def create_game_conversation(game_manager: GameManager) -> ConversationHandler:
                 ][current_idx + 1]
                 return await OutcomeSelectionHandler(update, context)
             else:
+                # Delete the message before showing summary
+                try:
+                    await query.message.delete()
+                except Exception as e:
+                    # If deletion fails, just continue to summary
+                    logger.warning(f"Failed to delete message: {str(e)}")
                 return await GameSummaryHandler(update, context)
 
         eliminated_id = int(query.data.split(":")[1])
         game = context.user_data["current_game"]
         current_player_id = context.user_data["current_player_id"]
-
-        # Dev note: this is NOT a useful constraint due to kingdom/role games
-        # Only change the outcome to LOSE if it wasn't already set to DRAW
-        # if game.outcomes.get(eliminated_id) != GameOutcome.DRAW:
-        #     game.record_outcome(eliminated_id, GameOutcome.LOSE)
 
         game.eliminations[eliminated_id] = current_player_id
         context.user_data["eliminated_players"].append(eliminated_id)
@@ -175,10 +175,13 @@ def create_game_conversation(game_manager: GameManager) -> ConversationHandler:
             return ConversationHandler.END
         elif text == "cancel":
             _reset_user_data(context)
-            await update.message.reply_text("❌ Game has been discarded.")
+            await SimpleReplyStrategy(
+                "❌ Game has been discarded."
+            ).execute(update, context)
             return ConversationHandler.END
         else:
-            return await GameSummaryHandler(update, context)
+            # wait for user to reply with "confirm" or "cancel"
+            return CONFIRM_GAME
 
     async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Cancel the current game creation process."""

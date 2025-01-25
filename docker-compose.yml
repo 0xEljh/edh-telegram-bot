@@ -1,0 +1,22 @@
+version: '3.3'
+
+services:
+  app:
+    build:
+      context: . # Path to your Dockerfile
+      dockerfile: Dockerfile # Explicitly specify Dockerfile if needed
+    container_name: edh_telegram_bot # A descriptive name for your container
+    volumes:
+      - ./data:/app/data # Bind the host directory to the container directory
+    ports:
+      - "433:433" # Map host port to container port (if applicable)
+    environment:
+      # Any environment variables needed for app
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONUNBUFFERED=1
+    command: ["python", "main.py"]
+    restart: unless-stopped # Ensure the container restarts on failure
+
+volumes:
+  data:
+    driver: local
