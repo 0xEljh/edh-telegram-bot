@@ -7,7 +7,6 @@ from sqlalchemy import (
     DateTime,
     BigInteger,
     ForeignKey,
-    ForeignKeyConstraint,
     UniqueConstraint,
 )
 from sqlalchemy.ext.declarative import declarative_base
@@ -28,6 +27,7 @@ class Pod(Base):
 
 
 class PodPlayer(Base):
+    # TODO: consider adding more indexes to this
     __tablename__ = "pods_players"
 
     pods_player_id = Column(Integer, primary_key=True, autoincrement=True)
@@ -104,19 +104,20 @@ class GameDeletionRequest(Base):
     __tablename__ = "game_deletion_requests"
 
     request_id = Column(Integer, primary_key=True, autoincrement=True)
-    game_id = Column(Integer, nullable=False)
-    requester_id = Column(Integer, nullable=False)
+    game_id = Column(
+        Integer,
+        ForeignKey("games.game_id", ondelete="CASCADE"),  # Direct column-level FK
+        nullable=False,
+    )
+    requester_id = Column(
+        Integer,
+        ForeignKey("pods_players.pods_player_id", ondelete="CASCADE"),  # Direct FK
+        nullable=False,
+    )
     created_at = Column(
         DateTime(timezone=True),
         nullable=False,
         default=lambda: datetime.now(timezone.utc),
-    )
-
-    __table_args__ = (
-        ForeignKeyConstraint(["game_id"], ["games.game_id"], ondelete="CASCADE"),
-        ForeignKeyConstraint(
-            ["requester_id"], ["pods_players.pods_player_id"], ondelete="CASCADE"
-        ),
     )
 
     # Relationships
