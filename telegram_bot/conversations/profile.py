@@ -13,9 +13,6 @@ from telegram.ext import (
     filters,
     ContextTypes,
 )
-import os
-from pathlib import Path
-
 from telegram_bot.models.game import GameManager
 from telegram_bot.models import UnitHandler
 
@@ -24,7 +21,8 @@ from telegram_bot.strategies import (
     LoggingErrorStrategy,
     PlayerProfileReply,
 )
-import logging 
+from telegram_bot.utils import save_avatar
+import logging
 
 # Set up logging
 logging.basicConfig(
@@ -35,36 +33,6 @@ logger = logging.getLogger(__name__)
 
 ENTER_NAME = 0
 ENTER_PHOTO = 1
-
-AVATAR_DIR = Path("data/avatars")
-os.makedirs(AVATAR_DIR, exist_ok=True)
-
-
-async def save_avatar(bot, photo, user_id: int, pod_id: int) -> str:
-    """Save the user's avatar photo to disk.
-
-    Args:
-        bot: The telegram bot instance
-        photo: The PhotoSize object from telegram
-        user_id: The user's telegram ID
-        pod_id: The pod ID; i.e. the group chat ID
-
-    Returns:
-        The relative path to the saved avatar file
-    """
-    # Get the file from Telegram
-    logger.info(f"saving avatar for {user_id} from {pod_id}")
-    file = await bot.get_file(photo.file_id)
-
-    # Create filename using user_id
-    filename = f"{user_id}_{pod_id}.jpg"
-    filepath = AVATAR_DIR / filename
-
-    # Download and save the file
-    await file.download_to_drive(custom_path=str(filepath))
-    logger.info(f"Avatar saved at {filepath}")
-
-    return str(filepath)
 
 
 def create_profile_conversation(game_manager: GameManager) -> ConversationHandler:
@@ -155,7 +123,9 @@ def create_profile_conversation(game_manager: GameManager) -> ConversationHandle
         name = context.user_data["profile_name"]
 
         if not name:
-            logger.error("No name stored in user_data when expecting to create a profile.")
+            logger.error(
+                "No name stored in user_data when expecting to create a profile."
+            )
             await update.message.reply_text(
                 "❌ Something went wrong. Please start over with /profile."
             )
@@ -171,7 +141,9 @@ def create_profile_conversation(game_manager: GameManager) -> ConversationHandle
             context.bot, photo, update.effective_user.id, chat_id
         )
 
-        logger.info(f"Attempting to create profile for {update.effective_user.id} with name='{name}'")
+        logger.info(
+            f"Attempting to create profile for {update.effective_user.id} with name='{name}'"
+        )
 
         game_manager.create_player(
             name=name,
@@ -192,13 +164,17 @@ def create_profile_conversation(game_manager: GameManager) -> ConversationHandle
         name = context.user_data["profile_name"]
 
         if not name:
-            logger.error("No name stored in user_data when expecting to create a profile.")
+            logger.error(
+                "No name stored in user_data when expecting to create a profile."
+            )
             await update.message.reply_text(
                 "❌ Something went wrong. Please start over with /profile."
             )
             return ConversationHandler.END
 
-        logger.info(f"Attempting to create profile for {update.effective_user.id} with name='{name}'")
+        logger.info(
+            f"Attempting to create profile for {update.effective_user.id} with name='{name}'"
+        )
 
         # Try to get user's Telegram profile photo
         user_profile_photos = await context.bot.get_user_profile_photos(
@@ -230,7 +206,7 @@ def create_profile_conversation(game_manager: GameManager) -> ConversationHandle
             f"✨ Welcome, {name}! Your profile has been created. You can now participate in games!"
         )
         return ConversationHandler.END
-    
+
     async def handle_unexpected_file(
         update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> int:
@@ -241,14 +217,14 @@ def create_profile_conversation(game_manager: GameManager) -> ConversationHandle
         )
         return ENTER_PHOTO
 
-
     def _reset_user_data(context):
         # remove name and photo
         if "profile_name" in context.user_data:
             del context.user_data["profile_name"]
 
-    
-    async def cancel_profile_creation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def cancel_profile_creation(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ):
         """Cancel profile creation process."""
         logger.info("Profile creation conversation canceled by user.")
         _reset_user_data(context)
@@ -264,18 +240,22 @@ def create_profile_conversation(game_manager: GameManager) -> ConversationHandle
                 MessageHandler(
                     filters.TEXT & ~filters.COMMAND, receive_name_and_prompt_photo
                 ),
-                CommandHandler("profile", cancel_profile_creation),  # Cancel if user hits /profile again
+                CommandHandler(
+                    "profile", cancel_profile_creation
+                ),  # Cancel if user hits /profile again
             ],
             ENTER_PHOTO: [
                 MessageHandler(filters.PHOTO, receive_photo_and_create_profile),
                 CommandHandler("skip", skip_photo_and_create_profile),
-                MessageHandler(~filters.COMMAND & ~filters.PHOTO, handle_unexpected_file),
-                CommandHandler("profile", cancel_profile_creation),  # Cancel if user hits /profile again
+                MessageHandler(
+                    ~filters.COMMAND & ~filters.PHOTO, handle_unexpected_file
+                ),
+                CommandHandler(
+                    "profile", cancel_profile_creation
+                ),  # Cancel if user hits /profile again
             ],
         },
-        fallbacks=[
-            CommandHandler("cancel", cancel_profile_creation)
-        ],
+        fallbacks=[CommandHandler("cancel", cancel_profile_creation)],
         per_chat=True,
         per_user=True,
     )

@@ -372,7 +372,8 @@ class Game:
                 )
 
         summary.append("\n\n" + self.created_at.strftime("%a %b %d, %H:%M"))
-        summary.append(f"Ref: <i>{self.deletion_reference}</i>")
+        if self.deletion_reference:
+            summary.append(f"Ref: <i>{self.deletion_reference}</i>")
 
         return "\n".join(summary)
 

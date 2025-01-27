@@ -125,9 +125,12 @@ class OutcomeSelectionReply(ReplyStrategy):
 class EliminationSelectionReply(ReplyStrategy):
     """Strategy for displaying elimination selection interface."""
 
-    def __init__(self, game_manager: GameManager):
+    def __init__(
+        self, game_manager: GameManager, disallow_self_elimination: bool = False
+    ):
         super().__init__()
         self.game_manager = game_manager
+        self.disallow_self_elimination = disallow_self_elimination
 
     def _create_keyboard(
         self, available_players: List[int], current_player_id: int, pod_id: int
@@ -135,6 +138,9 @@ class EliminationSelectionReply(ReplyStrategy):
         """Create keyboard with available players for elimination."""
         keyboard = []
         for pid in available_players:
+            if self.disallow_self_elimination:
+                if pid == current_player_id:
+                    continue
             player = self.game_manager.get_pod_player(pid, pod_id)
             keyboard.append(
                 [
@@ -206,4 +212,51 @@ class GameSummaryReply(ReplyStrategy):
 
         await self._send_message(
             update=update, context=context, message=message, keyboard=None
+        )
+
+
+class WinnerSelectionReply(ReplyStrategy):
+    """Strategy for displaying winner selection interface."""
+
+    def __init__(self, game_manager: GameManager):
+        super().__init__(parse_mode="HTML")
+        self.game_manager = game_manager
+
+    def _create_keyboard(
+        self, available_players: List[int], pod_id: int
+    ) -> InlineKeyboardMarkup:
+        """Create keyboard with available players for winner selection."""
+        keyboard = []
+        for pid in available_players:
+            player = self.game_manager.get_pod_player(pid, pod_id)
+            keyboard.append(
+                [
+                    InlineKeyboardButton(
+                        player.name,
+                        callback_data=f"winner:{pid}",
+                    )
+                ]
+            )
+        return InlineKeyboardMarkup(keyboard)
+
+    async def execute(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Display winner selection interface."""
+        game = context.user_data["current_game"]
+        pod_id = update.effective_chat.id
+
+        # Get all players in the game
+        available_players = context.user_data["added_players"]
+        keyboard = self._create_keyboard(available_players, pod_id)
+
+        message = (
+            "🏆 Select the winner of the game:\n"
+            "<i>Are there multiple winners in your game? Use /cancel to abort. Then use /customgame instead.</i>"
+        )
+
+        await self._send_message(
+            update,
+            context,
+            message,
+            keyboard,
+            update_message=True if update.callback_query else False,
         )

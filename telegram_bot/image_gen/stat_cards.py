@@ -144,19 +144,47 @@ def create_stat_card(
     avatar_x = 20
     avatar_y = (height - avatar_size) // 2
 
+    def create_circular_mask(size):
+        mask = Image.new('L', (size, size), 0)
+        draw_mask = ImageDraw.Draw(mask)
+        draw_mask.ellipse((0, 0, size-1, size-1), fill=255)
+        return mask
+
+    # Create circular mask
+    mask = create_circular_mask(avatar_size)
+
     if data.avatar_path and os.path.exists(data.avatar_path):
         try:
-            avatar = Image.open(data.avatar_path).convert("RGBA")
-            avatar.thumbnail((avatar_size, avatar_size))
-            # Circular mask
-            mask = Image.new("L", avatar.size, 0)
-            mask_draw = ImageDraw.Draw(mask)
-            mask_draw.ellipse([(0, 0), avatar.size], fill=255)
-
-            card.paste(avatar, (avatar_x, avatar_y), mask)
-        except Exception:
+            # Load and resize avatar
+            avatar = Image.open(data.avatar_path)
+            avatar = avatar.convert('RGBA')
+            
+            # Calculate resize dimensions to maintain aspect ratio
+            ratio = min(avatar_size / avatar.width, avatar_size / avatar.height)
+            new_size = (int(avatar.width * ratio), int(avatar.height * ratio))
+            
+            # Resize maintaining aspect ratio
+            avatar = avatar.resize(new_size, Image.Resampling.LANCZOS)
+            
+            # Create a blank square image
+            square_avatar = Image.new('RGBA', (avatar_size, avatar_size), (0, 0, 0, 0))
+            
+            # Calculate position to center the resized image
+            paste_x = (avatar_size - new_size[0]) // 2
+            paste_y = (avatar_size - new_size[1]) // 2
+            
+            # Paste the resized image onto the square canvas
+            square_avatar.paste(avatar, (paste_x, paste_y))
+            
+            # Apply circular mask
+            square_avatar.putalpha(mask)
+            
+            # Paste the circular avatar
+            card.paste(square_avatar, (avatar_x, avatar_y), square_avatar)
+        except Exception as e:
+            # If avatar loading fails, draw placeholder circle
             draw.ellipse(
-                [avatar_x, avatar_y, avatar_x + avatar_size, avatar_y + avatar_size],
+                [avatar_x, avatar_y, avatar_x + avatar_size - 1, avatar_y + avatar_size - 1],
                 fill=(128, 128, 128, 180),
             )
     else:
@@ -165,11 +193,11 @@ def create_stat_card(
             # use avatar_url/telegram photo
             pass
         except Exception:
+            # Draw placeholder circle
             draw.ellipse(
-                [avatar_x, avatar_y, avatar_x + avatar_size, avatar_y + avatar_size],
+                [avatar_x, avatar_y, avatar_x + avatar_size - 1, avatar_y + avatar_size - 1],
                 fill=(128, 128, 128, 180),
             )
-
 
     # Text positions
     text_start_x = avatar_x + avatar_size + 20
@@ -267,7 +295,7 @@ def create_leaderboard_image(
     for card_data in stat_cards:
         card = create_stat_card(card_data, width=width, height=card_height)
         (
-            image.alpha_composite(card, (spacing, y_offset))
+        image.alpha_composite(card, (spacing, y_offset))
             if image.mode == "RGBA"
             else image.paste(card, (spacing, y_offset), card)
         )

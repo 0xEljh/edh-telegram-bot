@@ -1,4 +1,4 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update
 from telegram.ext import (
     ConversationHandler,
     CommandHandler,
@@ -15,19 +15,19 @@ from telegram_bot.strategies import (
     SimpleReplyStrategy,
     LoggingErrorStrategy,
     PlayerSelectionReply,
+    OutcomeSelectionReply,
     EliminationSelectionReply,
     GameSummaryReply,
-    WinnerSelectionReply,
 )
 
 logger = logging.getLogger(__name__)
 
-# Updated conversation states
-START_GAME, ADD_PLAYERS, SELECT_WINNER, RECORD_ELIMINATIONS, CONFIRM_GAME = range(5)
+# Define conversation states
+START_GAME, ADD_PLAYERS, RECORD_OUTCOMES, RECORD_ELIMINATIONS, CONFIRM_GAME = range(5)
 
 
-def create_game_conversation(game_manager: GameManager) -> ConversationHandler:
-    """Create a conversation handler for adding a new game."""
+def create_custom_game_conversation(game_manager: GameManager) -> ConversationHandler:
+    """Create a conversation handler for adding a new (custom) game."""
 
     async def start_game(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Initialize a new game and show player selection."""
@@ -61,15 +61,15 @@ def create_game_conversation(game_manager: GameManager) -> ConversationHandler:
         await query.answer()
 
         if query.data == "done_adding_players":
-            # if len(context.user_data["added_players"]) < 2:
-            #     await SimpleReplyStrategy(
-            #         "❌ Sorry, no playing with yourself. At least 2 players are required for a game."
-            #     ).execute(update, context)
-            #     return await PlayerSelectionHandler(update, context)
+            if len(context.user_data["added_players"]) < 2:
+                await SimpleReplyStrategy(
+                    "❌ Sorry, no playing with yourself. At least 2 players are required for a game."
+                ).execute(update, context)
+                return await PlayerSelectionHandler(update, context)
             context.user_data["current_player_id"] = context.user_data["added_players"][
                 0
             ]
-            return await WinnerSelectionHandler(update, context)
+            return await OutcomeSelectionHandler(update, context)
 
         player_id = int(query.data.split(":")[1])
         context.user_data["added_players"].append(player_id)
@@ -79,23 +79,20 @@ def create_game_conversation(game_manager: GameManager) -> ConversationHandler:
         game.add_player(player_id, player.name)
         return await PlayerSelectionHandler(update, context)
 
-    async def handle_winner_selection(
+    async def handle_outcome_selection(
         update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> int:
-        """Process winner selection and set outcomes"""
+        """Handle outcome selection callback."""
         query = update.callback_query
         await query.answer()
 
-        winner_id = int(query.data.split(":")[-1])
+        outcome = GameOutcome(query.data.split(":")[2].lower())
+
         game = context.user_data["current_game"]
-        added_players = context.user_data["added_players"]
+        current_player_id = context.user_data["current_player_id"]
+        game.record_outcome(current_player_id, outcome)
 
-        # Set outcomes: winner=WIN, others=LOSE
-        for player_id in added_players:
-            outcome = GameOutcome.WIN if player_id == winner_id else GameOutcome.LOSE
-            game.record_outcome(player_id, outcome)
-
-        context.user_data["current_player_id"] = winner_id  # select for winner first
+        # Move to elimination selection for this player
         return await EliminationSelectionHandler(update, context)
 
     async def handle_elimination_selection(
@@ -106,7 +103,7 @@ def create_game_conversation(game_manager: GameManager) -> ConversationHandler:
         await query.answer()
 
         if query.data == "done_eliminations":
-            # Move to next player
+            # Move to next player or finish
             current_idx = context.user_data["added_players"].index(
                 context.user_data["current_player_id"]
             )
@@ -114,7 +111,7 @@ def create_game_conversation(game_manager: GameManager) -> ConversationHandler:
                 context.user_data["current_player_id"] = context.user_data[
                     "added_players"
                 ][current_idx + 1]
-                return await EliminationSelectionHandler(update, context)
+                return await OutcomeSelectionHandler(update, context)
             else:
                 # Delete the message before showing summary
                 try:
@@ -186,33 +183,6 @@ def create_game_conversation(game_manager: GameManager) -> ConversationHandler:
             # wait for user to reply with "confirm" or "cancel"
             return CONFIRM_GAME
 
-    # Create handlers with strategies
-    PlayerSelectionHandler = UnitHandler(
-        reply_strategy=PlayerSelectionReply(game_manager),
-        error_strategy=LoggingErrorStrategy(notify_user=True),
-        return_state=ADD_PLAYERS,
-    )
-
-    WinnerSelectionHandler = UnitHandler(
-        reply_strategy=WinnerSelectionReply(game_manager),
-        error_strategy=LoggingErrorStrategy(notify_user=True),
-        return_state=SELECT_WINNER,
-    )
-
-    EliminationSelectionHandler = UnitHandler(
-        reply_strategy=EliminationSelectionReply(
-            game_manager, disallow_self_elimination=True
-        ),
-        error_strategy=LoggingErrorStrategy(notify_user=True),
-        return_state=RECORD_ELIMINATIONS,
-    )
-
-    GameSummaryHandler = UnitHandler(
-        reply_strategy=GameSummaryReply(game_manager),
-        error_strategy=LoggingErrorStrategy(notify_user=True),
-        return_state=CONFIRM_GAME,
-    )
-
     async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Cancel the current game creation process."""
         _reset_user_data(context)
@@ -232,16 +202,47 @@ def create_game_conversation(game_manager: GameManager) -> ConversationHandler:
         if "current_player_id" in context.user_data:
             del context.user_data["current_player_id"]
 
+    # Create handlers with strategies
+    PlayerSelectionHandler = UnitHandler(
+        reply_strategy=PlayerSelectionReply(game_manager),
+        error_strategy=LoggingErrorStrategy(notify_user=True),
+        return_state=ADD_PLAYERS,
+    )
+
+    OutcomeSelectionHandler = UnitHandler(
+        reply_strategy=OutcomeSelectionReply(game_manager),
+        error_strategy=LoggingErrorStrategy(notify_user=True),
+        return_state=RECORD_OUTCOMES,
+    )
+
+    EliminationSelectionHandler = UnitHandler(
+        reply_strategy=EliminationSelectionReply(game_manager),
+        error_strategy=LoggingErrorStrategy(notify_user=True),
+        return_state=RECORD_ELIMINATIONS,
+    )
+
+    GameSummaryHandler = UnitHandler(
+        reply_strategy=GameSummaryReply(game_manager),
+        error_strategy=LoggingErrorStrategy(notify_user=True),
+        return_state=CONFIRM_GAME,
+    )
+
     return ConversationHandler(
-        entry_points=[CommandHandler("game", start_game)],
+        entry_points=[CommandHandler("customgame", start_game)],
         states={
-            ADD_PLAYERS: [CallbackQueryHandler(handle_player_selection)],
-            SELECT_WINNER: [CallbackQueryHandler(handle_winner_selection)],
-            RECORD_ELIMINATIONS: [CallbackQueryHandler(handle_elimination_selection)],
+            ADD_PLAYERS: [
+                CallbackQueryHandler(handle_player_selection),
+            ],
+            RECORD_OUTCOMES: [
+                CallbackQueryHandler(handle_outcome_selection),
+            ],
+            RECORD_ELIMINATIONS: [
+                CallbackQueryHandler(handle_elimination_selection),
+            ],
             CONFIRM_GAME: [
                 MessageHandler(
                     filters.TEXT & ~filters.COMMAND, handle_game_confirmation
-                )
+                ),
             ],
         },
         fallbacks=[CommandHandler("cancel", cancel_command)],
