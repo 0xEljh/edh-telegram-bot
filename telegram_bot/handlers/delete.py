@@ -20,9 +20,9 @@ def create_deletegame_handler(game_manager: GameManager) -> CommandHandler:
         status_map = {
             "not_found": "❌ Game not found",
             "not_in_game": "❌ You're not part of this game",
-            "already_requested": "⏳ You've already requested deletion",
+            "already_requested": "⏳ You've already requested deletion on this game. It will be deleted if another player uses /delete on the same game.",
             "deleted": "✅ Game deleted successfully",
-            "pending": "🗑️ Deletion request recorded! Need 1 more confirmation.",
+            "pending": "🗑️ Deletion request recorded! Need 1 more confirmation to delete the game: Another player must also use /delete on the same game.",
             "error": f"❌ Error: {result.get('error', 'Unknown error')}",
         }
 

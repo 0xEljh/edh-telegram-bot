@@ -11,7 +11,7 @@ from telegram_bot.image_gen.stat_cards import (
 from telegram_bot.stats.profile import calculate_decorative_stat
 from io import BytesIO
 
-GAMES_PER_PAGE = 3
+GAMES_PER_PAGE = 5
 PAGE_PREFIX = "page_"
 
 
@@ -292,7 +292,7 @@ class PodHistoryReply(ReplyStrategy):
         return InlineKeyboardMarkup([buttons]) if buttons else None
 
     def _format_game_entry(self, game: Game) -> str:
-        return f"---\n\n{str(game)}\n\n"
+        return f"━━━━━━━━━━━━━━━━━━━━\n\n{str(game)}\n\n"
 
     async def execute(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Display the pod's game history."""

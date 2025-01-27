@@ -6,7 +6,8 @@ import random
 from sqlalchemy.orm import Session
 from hashids import Hashids
 from html import escape
-from textwrap import shorten
+import os
+import dotenv
 from .database import (
     Game as DBGame,
     GameResult,
@@ -16,6 +17,8 @@ from .database import (
     Pod as DBPod,
     init_db,
 )
+
+dotenv.load_dotenv()
 
 
 class GameOutcome(str, Enum):
@@ -253,6 +256,13 @@ class Game:
             # Bulk insert eliminations
             if eliminations:
                 session.bulk_save_objects(eliminations)
+
+            # Generate deletion reference
+            hashids = Hashids(salt=os.getenv("DATABASE_SALT"), min_length=6)
+            deletion_ref = hashids.encode(self.game_id)
+            self.deletion_reference = deletion_ref
+
+            self._db_game.deletion_reference = deletion_ref
 
             session.flush()  # Ensure all changes are valid
             self.finalized = True
