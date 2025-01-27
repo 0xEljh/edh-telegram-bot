@@ -2,14 +2,13 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Dict, List, Optional, Set
-import json
-import os
-from pathlib import Path
 import random
 from sqlalchemy.orm import Session
+from hashids import Hashids
 from .database import (
     Game as DBGame,
     GameResult,
+    GameDeletionRequest,
     PodPlayer,
     Elimination,
     Pod as DBPod,
@@ -34,6 +33,8 @@ def get_random_kill_word():
         "vanquished",
         "stuck down",
         "slayed",
+        "obliterated",
+        "snuffed out",
     ]
     return random.choice(kill_words)
 
@@ -133,7 +134,7 @@ class Pod:
         return cls(
             id=db_pod.pod_id,
             name=db_pod.name,
-            members=set(player.telegram_id for player in db_pod.players)
+            members=set(player.telegram_id for player in db_pod.players),
         )
 
     def __str__(self) -> str:
@@ -143,6 +144,7 @@ class Pod:
 @dataclass
 class Game:
     """Represents a single EDH game."""
+
     pod_id: int
     created_at: datetime
     players: Dict[int, str] = field(default_factory=dict)  # telegram_id -> name mapping
@@ -152,6 +154,7 @@ class Game:
     )  # eliminated_id -> eliminator_id
     finalized: bool = False
     game_id: Optional[int] = None  # Default to None for auto-assignment
+    deletion_reference: Optional[str] = None  # Reference for game deletion
     _db_game: Optional[DBGame] = None
 
     def add_player(self, telegram_id: int, name: str):
@@ -176,23 +179,21 @@ class Game:
         """Save the game to database."""
         if self.finalized:
             return  # Already finalized, no need to do it again
-            
+
         if not self.outcomes:
             raise ValueError("Cannot finalize game with no outcomes recorded")
-            
+
         # All database operations should be in the same transaction
         try:
             # Create or get the game record
             if not self._db_game:
-                self._db_game = DBGame(
-                    pod_id=self.pod_id, created_at=self.created_at
-                )
+                self._db_game = DBGame(pod_id=self.pod_id, created_at=self.created_at)
                 session.add(self._db_game)
                 session.flush()  # Get the game_id
-                
+
                 if not self._db_game.game_id:
                     raise ValueError("Failed to generate game_id")
-                    
+
                 self.game_id = self._db_game.game_id
 
             # Add all game results at once
@@ -204,7 +205,9 @@ class Game:
                     .first()
                 )
                 if not player:
-                    raise ValueError(f"Player {telegram_id} not found in pod {self.pod_id}")
+                    raise ValueError(
+                        f"Player {telegram_id} not found in pod {self.pod_id}"
+                    )
 
                 results.append(
                     GameResult(
@@ -213,7 +216,7 @@ class Game:
                         outcome=outcome.value,
                     )
                 )
-            
+
             # Bulk insert results
             if results:
                 session.bulk_save_objects(results)
@@ -231,7 +234,7 @@ class Game:
                     .filter_by(pod_id=self.pod_id, telegram_id=eliminator_id)
                     .first()
                 )
-                
+
                 if not eliminated or not eliminator:
                     raise ValueError(
                         f"Players not found - Eliminated: {eliminated_id}, Eliminator: {eliminator_id}"
@@ -244,14 +247,14 @@ class Game:
                         eliminated_id=eliminated.pods_player_id,
                     )
                 )
-            
+
             # Bulk insert eliminations
             if eliminations:
                 session.bulk_save_objects(eliminations)
 
             session.flush()  # Ensure all changes are valid
             self.finalized = True
-            
+
         except Exception as e:
             # session.rollback() # currently redundant (rollback in game manager level)
             raise RuntimeError(f"Failed to finalize game: {str(e)}") from e
@@ -260,9 +263,10 @@ class Game:
     def from_db_game(cls, db_game: DBGame) -> "Game":
         """Create a Game instance from a database Game model."""
         game = cls(
-            game_id=db_game.game_id,
             pod_id=db_game.pod_id,
             created_at=db_game.created_at,
+            game_id=db_game.game_id,
+            deletion_reference=db_game.deletion_reference,
             finalized=True,
             _db_game=db_game,
         )
@@ -295,6 +299,7 @@ class Game:
                 str(tid): str(eid) for tid, eid in self.eliminations.items()
             },
             "finalized": self.finalized,
+            "deletion_reference": self.deletion_reference,
         }
 
     @classmethod
@@ -313,56 +318,76 @@ class Game:
                 int(tid): int(eid) for tid, eid in data["eliminations"].items()
             },
             finalized=data["finalized"],
+            deletion_reference=data.get("deletion_reference"),
         )
+
+    def _get_outcome_emoji(self, outcome: GameOutcome) -> str:
+        return {
+            GameOutcome.WIN: "🟢",
+            GameOutcome.LOSE: "🔴",
+            GameOutcome.DRAW: "🟡",
+        }.get(outcome, "⚪")
 
     def __str__(self) -> str:
         """Return a string representation of the game."""
-        summary = []
+        winners = [
+            self.players[telegram_id]
+            for telegram_id, outcome in self.outcomes.items()
+            if outcome == GameOutcome.WIN
+        ]
 
-        summary.append(f"<b>{' vs '.join(self.players.values())}</b>")
+        summary = [
+            f"<b>{' vs '.join(self.players.values())}</b>:  <b>🏆{', '.join(winners)} </b>"
+        ]
+        if hasattr(self, "description") and self.description:
+            summary.append(f"\n📜 {self.description}")
         summary.append("\n")
-        for player_id, player_name in self.players.items():
-            outcome = self.outcomes.get(player_id)
-            eliminations = sum(
-                1 for eid in self.eliminations.values() if eid == player_id
+
+        # sort by outcome; show the winner
+
+        for telegram_id, player_name in self.players.items():
+            outcome = self.outcomes.get(telegram_id)
+            kills = sum(1 for eid in self.eliminations.values() if eid == telegram_id)
+            # Build achievement badges
+            badges = []
+            if outcome == GameOutcome.WIN:
+                badges.append("🏆 Victor")
+            if kills > 0:
+                badges.append(f"⚔️ {kills} kill{'s' if kills > 1 else ''}")
+            if outcome == GameOutcome.LOSE:
+                badges.append("💀 Defeated")
+
+            summary.append(
+                f"┃ {self._get_outcome_emoji(outcome)} {player_name}"
+                + (f" │ {', '.join(badges)}" if badges else "")
             )
-            if outcome is None:
-                outcome_emoji = "❓"
-                outcome_text = "Unknown"
-            else:
-                outcome_emoji = (
-                    "🏆"
-                    if outcome == GameOutcome.WIN
-                    else "💀" if outcome == GameOutcome.LOSE else "🤝"
+
+        if self.eliminations:
+            summary.append("\n\n<b>Takedowns:</b>")
+            for eliminated_id, eliminator_id in self.eliminations.items():
+                summary.append(
+                    f"┃ ☠️ {self.players[eliminated_id]} "
+                    + f"was {get_random_kill_word()} by "
+                    + f"<i>{self.players[eliminator_id]}</i>"
                 )
-                outcome_text = outcome.value.capitalize()
-            summary.append(
-                f"  {outcome_emoji} {player_name} — {outcome_text} | ⚔️ Kills: {eliminations}"
-            )
 
-        summary.append("\n")
-        summary.append("Eliminations:")
-        summary.append("\n")
-        for eliminated_id, eliminator_id in self.eliminations.items():
-            eliminated_name = self.players[eliminated_id]
-            eliminator_name = self.players[eliminator_id]
-            summary.append(
-                f"  ☠️ {eliminated_name} was {get_random_kill_word()} by {eliminator_name}"
-            )
+        summary.append("\n\n" + self.created_at.strftime("%a %b %d, %H:%M"))
+        summary.append(f"Ref: <i>{self.deletion_reference}</i>")
 
-        summary.append("\n")
-        summary.append(f"Created at: {self.created_at.strftime('%Y-%m-%d %H:%M')}")
         return "\n".join(summary)
 
 
 class GameManager:
     """Manages games and player statistics."""
 
-    def __init__(self, db_url: str = "sqlite:///edh_games.db"):
+    def __init__(
+        self, db_url: str = "sqlite:///data/games.db", db_salt: str = "SECRET_SALT"
+    ):
         """Initialize the game manager with a database connection."""
         self.Session = init_db(db_url)
         self._session = self.Session()
-        
+        self.hashids = Hashids(salt=db_salt, min_length=6)
+
     def _reset_session(self):
         """Reset the session if it's in an invalid state."""
         if self._session is not None:
@@ -393,16 +418,19 @@ class GameManager:
                 return query_func(self._session)
             except Exception as e2:
                 self._session.rollback()
-                raise RuntimeError(f"Query failed after session reset: {str(e2)}") from e2
+                raise RuntimeError(
+                    f"Query failed after session reset: {str(e2)}"
+                ) from e2
 
     @property
     def pods(self) -> Dict[int, Pod]:
         """Get all pods."""
+
         def query_func(session):
             return {
-                pod.pod_id: Pod.from_db_pod(pod)
-                for pod in session.query(DBPod).all()
+                pod.pod_id: Pod.from_db_pod(pod) for pod in session.query(DBPod).all()
             }
+
         return self._safe_query(query_func)
 
     def add_game(self, game: Game):
@@ -417,14 +445,20 @@ class GameManager:
                         .first()
                     )
                     if not player:
-                        raise ValueError(f"Player {telegram_id} not found in pod {game.pod_id}")
+                        raise ValueError(
+                            f"Player {telegram_id} not found in pod {game.pod_id}"
+                        )
 
                 # Then validate all eliminations reference valid players
                 for eliminated_id, eliminator_id in game.eliminations.items():
                     if eliminated_id not in game.players:
-                        raise ValueError(f"Eliminated player {eliminated_id} is not in this game")
+                        raise ValueError(
+                            f"Eliminated player {eliminated_id} is not in this game"
+                        )
                     if eliminator_id not in game.players:
-                        raise ValueError(f"Eliminator {eliminator_id} is not in this game")
+                        raise ValueError(
+                            f"Eliminator {eliminator_id} is not in this game"
+                        )
 
                 # Now try to finalize the game
                 game.finalize(self._session)
@@ -512,6 +546,7 @@ class GameManager:
         self, telegram_id: int, pod_id: int, since_date: Optional[datetime] = None
     ) -> Optional[PlayerStats]:
         """Get a player's statistics by telegram_id and pod_id."""
+
         def query_func(session):
             player = (
                 session.query(PodPlayer)
@@ -534,7 +569,9 @@ class GameManager:
             )
 
             if since_date:
-                query = query.join(GameResult.game).filter(DBGame.created_at >= since_date)
+                query = query.join(GameResult.game).filter(
+                    DBGame.created_at >= since_date
+                )
 
             for result in query.all():
                 eliminations = session.query(Elimination).filter(
@@ -547,23 +584,31 @@ class GameManager:
                     )
                 elim_count = eliminations.count()
 
-                stats.update_from_game(GameOutcome(result.outcome), eliminations=elim_count)
+                stats.update_from_game(
+                    GameOutcome(result.outcome), eliminations=elim_count
+                )
 
             return stats
 
         return self._safe_query(query_func)
 
-    def get_player_games(self, telegram_id: int, pod_id: Optional[int] = None, since_date: Optional[datetime] = None) -> List[Game]:
+    def get_player_games(
+        self,
+        telegram_id: int,
+        pod_id: Optional[int] = None,
+        since_date: Optional[datetime] = None,
+    ) -> List[Game]:
         """Get all games for a player, optionally filtered by pod and date.
-        
+
         Args:
             telegram_id: The player's Telegram ID
             pod_id: Optional pod ID to filter games by
             since_date: Optional date to only return games after this date
-            
+
         Returns:
             List of Game objects, sorted by creation date (newest first)
         """
+
         def query_func(session: Session) -> List[Game]:
             query = (
                 session.query(DBGame)
@@ -571,13 +616,13 @@ class GameManager:
                 .join(PodPlayer)
                 .filter(PodPlayer.telegram_id == telegram_id)
             )
-            
+
             if pod_id is not None:
                 query = query.filter(DBGame.pod_id == pod_id)
-                
+
             if since_date is not None:
                 query = query.filter(DBGame.created_at >= since_date)
-                
+
             return [Game.from_db_game(g) for g in query.all()]
 
         return self._safe_query(query_func)
@@ -637,3 +682,70 @@ class GameManager:
         query = query.order_by(DBGame.created_at.desc())
 
         return [Game.from_db_game(db_game) for db_game in query.all()]
+
+    def get_game_by_reference(self, deletion_reference: str) -> Optional[Game]:
+        """Get game by its deletion reference."""
+
+        def query_func(session):
+            db_game = (
+                session.query(DBGame)
+                .filter_by(deletion_reference=deletion_reference)
+                .first()
+            )
+            return Game.from_db_game(db_game) if db_game else None
+
+        return self._safe_query(query_func)
+
+    def request_game_deletion(self, deletion_ref: str, requester_id: int) -> dict:
+        """Process game deletion request. Returns status object with result and details."""
+        try:
+            game = self.get_game_by_reference(deletion_ref)
+            if not game:
+                return {"status": "not_found"}
+
+            # Get pod player ID
+            pod_player = (
+                self._session.query(PodPlayer)
+                .filter_by(pod_id=game.pod_id, telegram_id=requester_id)
+                .first()
+            )
+            if not pod_player:
+                return {"status": "not_in_game"}
+
+            # Check existing requests
+            existing = (
+                self._session.query(GameDeletionRequest)
+                .filter_by(game_id=game.game_id, requester_id=pod_player.pods_player_id)
+                .first()
+            )
+            if existing:
+                return {"status": "already_requested"}
+
+            # Create new request
+            self._session.add(
+                GameDeletionRequest(
+                    game_id=game.game_id, requester_id=pod_player.pods_player_id
+                )
+            )
+
+            # Check if we have 2 unique requesters
+            requesters = (
+                self._session.query(GameDeletionRequest.requester_id)
+                .filter_by(game_id=game.game_id)
+                .distinct()
+                .count()
+            )
+
+            if requesters >= 2:
+                # Delete game and related data
+                db_game = game._db_game
+                self._session.delete(db_game)
+                self._safe_commit()
+                return {"status": "deleted"}
+
+            self._safe_commit()
+            return {"status": "pending"}
+
+        except Exception as e:
+            self._session.rollback()
+            return {"status": "error", "error": str(e)}
