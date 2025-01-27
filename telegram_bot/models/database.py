@@ -59,20 +59,29 @@ class Game(Base):
 
     deletion_reference = Column(String, unique=True)
     deletion_requests = relationship("GameDeletionRequest", back_populates="game")
+    description = Column(String, nullable=True)  # New column
 
     # Relationships
     pod = relationship("Pod", back_populates="games")
-    results = relationship("GameResult", back_populates="game")
-    eliminations = relationship("Elimination", back_populates="game")
+    results = relationship(
+        "GameResult", back_populates="game", cascade="all, delete-orphan"
+    )
+    eliminations = relationship(
+        "Elimination", back_populates="game", cascade="all, delete-orphan"
+    )
+    deletion_requests = relationship(
+        "GameDeletionRequest", back_populates="game", cascade="all, delete-orphan"
+    )
 
 
 class GameResult(Base):
     __tablename__ = "game_results"
-
-    game_id = Column(Integer, ForeignKey("games.game_id"), primary_key=True)
-    player_id = Column(
-        Integer, ForeignKey("pods_players.pods_player_id"), primary_key=True
+    result_id = Column(Integer, primary_key=True)
+    game_id = Column(
+        Integer,
+        ForeignKey("games.game_id", ondelete="CASCADE"),
     )
+    player_id = Column(Integer, ForeignKey("pods_players.pods_player_id"))
     outcome = Column(String, nullable=False)  # 'win', 'lose', or 'draw'
     # TODO: consider migrating to this:
     # outcome = Column(Enum('win', 'lose', 'draw', name='outcome_enum'), nullable=False)
@@ -86,7 +95,9 @@ class Elimination(Base):
     __tablename__ = "eliminations"
 
     elimination_id = Column(Integer, primary_key=True, autoincrement=True)
-    game_id = Column(Integer, ForeignKey("games.game_id"), nullable=False)
+    game_id = Column(
+        Integer, ForeignKey("games.game_id", ondelete="CASCADE"), nullable=False
+    )
     eliminator_id = Column(
         Integer, ForeignKey("pods_players.pods_player_id"), nullable=False
     )
