@@ -5,6 +5,8 @@ from typing import Dict, List, Optional, Set
 import random
 from sqlalchemy.orm import Session
 from hashids import Hashids
+from html import escape
+from textwrap import shorten
 from .database import (
     Game as DBGame,
     GameResult,
@@ -330,6 +332,12 @@ class Game:
 
     def __str__(self) -> str:
         """Return a string representation of the game."""
+
+        # Helper to truncate and escape names
+        def format_name(name: str, max_len: int = 15) -> str:
+            escaped = escape(name)
+            return escaped[: max_len - 1] + "…" if len(escaped) > max_len else escaped
+
         winners = [
             self.players[telegram_id]
             for telegram_id, outcome in self.outcomes.items()
@@ -344,21 +352,28 @@ class Game:
         summary.append("\n")
 
         # sort by outcome; show the winner
+        outcome_order = {GameOutcome.WIN: 0, GameOutcome.LOSE: 1, GameOutcome.DRAW: 2}
+        sorted_players = sorted(
+            self.players.items(),
+            key=lambda item: outcome_order.get(
+                self.outcomes.get(item[0], GameOutcome.DRAW), 3
+            ),
+        )
 
-        for telegram_id, player_name in self.players.items():
+        for telegram_id, player_name in sorted_players:
             outcome = self.outcomes.get(telegram_id)
             kills = sum(1 for eid in self.eliminations.values() if eid == telegram_id)
             # Build achievement badges
             badges = []
             if outcome == GameOutcome.WIN:
                 badges.append("🏆 Victor")
-            if kills > 0:
-                badges.append(f"⚔️ {kills} kill{'s' if kills > 1 else ''}")
             if outcome == GameOutcome.LOSE:
-                badges.append("💀 Defeated")
+                badges.append("💀 Defeat")
+            if kills > 0:
+                badges.append(f"⚔️x{kills}")
 
             summary.append(
-                f"┃ {self._get_outcome_emoji(outcome)} {player_name}"
+                f"┃ {self._get_outcome_emoji(outcome)} {format_name(player_name)}"
                 + (f" │ {', '.join(badges)}" if badges else "")
             )
 
@@ -373,7 +388,7 @@ class Game:
 
         summary.append("\n\n" + self.created_at.strftime("%a %b %d, %H:%M"))
         if self.deletion_reference:
-            summary.append(f"Ref: <i>{self.deletion_reference}</i>")
+            summary.append(f"Ref: <code>{self.deletion_reference}</code>")
 
         return "\n".join(summary)
 

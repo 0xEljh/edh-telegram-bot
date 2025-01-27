@@ -216,7 +216,9 @@ def create_custom_game_conversation(game_manager: GameManager) -> ConversationHa
     )
 
     EliminationSelectionHandler = UnitHandler(
-        reply_strategy=EliminationSelectionReply(game_manager),
+        reply_strategy=EliminationSelectionReply(
+            game_manager, allow_self_elimination=True, allow_winner_elimination=True
+        ),
         error_strategy=LoggingErrorStrategy(notify_user=True),
         return_state=RECORD_ELIMINATIONS,
     )

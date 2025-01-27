@@ -105,7 +105,27 @@ def create_game_conversation(game_manager: GameManager) -> ConversationHandler:
         query = update.callback_query
         await query.answer()
 
+        game = context.user_data["current_game"]
+        winners = [
+            player_id
+            for player_id, outcome in game.outcomes.items()
+            if outcome == GameOutcome.WIN
+        ]
+
         if query.data == "done_eliminations":
+            # check if there are still players to eliminate
+            eliminated_players = context.user_data.get("eliminated_players", [])
+
+            # if eliminated players + winners = total number of players, we are actually done
+            if len(eliminated_players) + len(winners) == len(game.players):
+                # done
+                try:
+                    await query.message.delete()
+                except Exception as e:
+                    # If deletion fails, just continue to summary
+                    logger.warning(f"Failed to delete message: {str(e)}")
+                return await GameSummaryHandler(update, context)
+
             # Move to next player
             current_idx = context.user_data["added_players"].index(
                 context.user_data["current_player_id"]
@@ -115,7 +135,7 @@ def create_game_conversation(game_manager: GameManager) -> ConversationHandler:
                     "added_players"
                 ][current_idx + 1]
                 return await EliminationSelectionHandler(update, context)
-            else:
+            else:  # all players iterated through; shouldn't hit this anymore
                 # Delete the message before showing summary
                 try:
                     await query.message.delete()
@@ -200,9 +220,7 @@ def create_game_conversation(game_manager: GameManager) -> ConversationHandler:
     )
 
     EliminationSelectionHandler = UnitHandler(
-        reply_strategy=EliminationSelectionReply(
-            game_manager, disallow_self_elimination=True
-        ),
+        reply_strategy=EliminationSelectionReply(game_manager),
         error_strategy=LoggingErrorStrategy(notify_user=True),
         return_state=RECORD_ELIMINATIONS,
     )

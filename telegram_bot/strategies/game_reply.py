@@ -126,11 +126,15 @@ class EliminationSelectionReply(ReplyStrategy):
     """Strategy for displaying elimination selection interface."""
 
     def __init__(
-        self, game_manager: GameManager, disallow_self_elimination: bool = False
+        self,
+        game_manager: GameManager,
+        allow_self_elimination: bool = False,
+        allow_winner_elimination=False,
     ):
         super().__init__()
         self.game_manager = game_manager
-        self.disallow_self_elimination = disallow_self_elimination
+        self.allow_self_elimination = allow_self_elimination
+        self.allow_winner_elimination = allow_winner_elimination
 
     def _create_keyboard(
         self, available_players: List[int], current_player_id: int, pod_id: int
@@ -138,7 +142,7 @@ class EliminationSelectionReply(ReplyStrategy):
         """Create keyboard with available players for elimination."""
         keyboard = []
         for pid in available_players:
-            if self.disallow_self_elimination:
+            if self.allow_self_elimination:
                 if pid == current_player_id:
                     continue
             player = self.game_manager.get_pod_player(pid, pod_id)
@@ -165,6 +169,15 @@ class EliminationSelectionReply(ReplyStrategy):
         available_players = [
             p for p in context.user_data["added_players"] if p not in eliminated_players
         ]
+
+        if not self.allow_winner_elimination:
+            winners = [
+                player_id
+                for player_id, outcome in game.outcomes.items()
+                if outcome == GameOutcome.WIN
+            ]
+            available_players = [p for p in available_players if p not in winners]
+
         keyboard = self._create_keyboard(available_players, current_player_id, pod_id)
         eliminated_by_current = [
             game.players[eid]
