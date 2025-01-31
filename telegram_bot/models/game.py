@@ -5,7 +5,7 @@ from typing import Dict, List, Optional, Set
 import random
 from sqlalchemy.orm import Session
 from hashids import Hashids
-from html import escape
+from telegram_bot.utils import format_name
 import os
 import dotenv
 from .database import (
@@ -342,11 +342,6 @@ class Game:
 
     def __str__(self) -> str:
         """Return a string representation of the game."""
-
-        # Helper to truncate and escape names
-        def format_name(name: str, max_len: int = 15) -> str:
-            escaped = escape(name)
-            return escaped[: max_len - 1] + "…" if len(escaped) > max_len else escaped
 
         winners = [
             self.players[telegram_id]

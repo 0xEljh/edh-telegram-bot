@@ -38,9 +38,11 @@ A Telegram bot to track wins, losses, and statistics in your EDH/Commander Magic
 - `/start` - Get started with the bot
 - `/profile` - View your player profile and statistics
 - `/game` - Start recording a new game
-- `/history` - View game history
+- `/history` - View individual game history
+- `/podhistory` - View game history of the pod
 - `/pod` - Create or manage pods
 - `/leaderboard` - View pod leaderboard with stats and rankings
+- `/delete <ref>` - Delete a game. Requires 2 players to confirm it.
 
 ## Installation
 
@@ -86,6 +88,7 @@ python main.py
   - `stats/` - Statistics calculation and leaderboard generation
   - `image_gen/` - Image generation for stat cards
   - `scheduled_tasks/` - Automated tasks like weekly updates
+  - `utils/` - Helper functions
 
 ## Dependencies
 
@@ -112,5 +115,4 @@ Any contributions are welcome!
 
 - More detailed statistics and analytics
 - Editable player profiles
-- Ability to delete/edit games
 - Enhanced visualization options

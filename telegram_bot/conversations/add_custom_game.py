@@ -46,6 +46,12 @@ def create_custom_game_conversation(game_manager: GameManager) -> ConversationHa
             )
             return ConversationHandler.END
 
+        if context.user_data.get("current_game", None):
+            await update.message.reply_text(
+                "You were in the process of adding a game. Removing previous game data before continuing"
+            )
+            _reset_user_data(context)
+
         # Create game with pod_id
         game = game_manager.create_game(pod_id=chat_id)
         context.user_data["current_game"] = game
@@ -60,23 +66,31 @@ def create_custom_game_conversation(game_manager: GameManager) -> ConversationHa
         query = update.callback_query
         await query.answer()
 
+        if query.data == "reset_players":
+            context.user_data["added_players"] = []
+            return await PlayerSelectionHandler(update, context)
+
         if query.data == "done_adding_players":
             if len(context.user_data["added_players"]) < 2:
                 await SimpleReplyStrategy(
                     "❌ Sorry, no playing with yourself. At least 2 players are required for a game."
                 ).execute(update, context)
                 return await PlayerSelectionHandler(update, context)
+
+            game = context.user_data["current_game"]
+            for player_id in context.user_data["added_players"]:
+                player = game_manager.get_pod_player(player_id, game.pod_id)
+                game.add_player(player_id, player.name)
+
             context.user_data["current_player_id"] = context.user_data["added_players"][
                 0
             ]
+
             return await OutcomeSelectionHandler(update, context)
 
         player_id = int(query.data.split(":")[1])
         context.user_data["added_players"].append(player_id)
-        game = context.user_data["current_game"]
 
-        player = game_manager.get_pod_player(player_id, game.pod_id)
-        game.add_player(player_id, player.name)
         return await PlayerSelectionHandler(update, context)
 
     async def handle_outcome_selection(
@@ -102,6 +116,27 @@ def create_custom_game_conversation(game_manager: GameManager) -> ConversationHa
         query = update.callback_query
         await query.answer()
 
+        game = context.user_data["current_game"]
+
+        if query.data == "reset_eliminations":
+            # remove all eliminations from current player
+            current_player_id = context.user_data["current_player_id"]
+            current_eliminations = [
+                player
+                for player, eliminator in game.eliminations.items()
+                if eliminator == current_player_id
+            ]
+            # 1. Remove from game.eliminations
+            # 2. Remove from eliminated players
+            for player in current_eliminations:
+                game.eliminations.pop(player)
+            context.user_data["eliminated_players"] = [
+                player
+                for player in context.user_data["eliminated_players"]
+                if player not in current_eliminations
+            ]
+            return await EliminationSelectionHandler(update, context)
+
         if query.data == "done_eliminations":
             # Move to next player or finish
             current_idx = context.user_data["added_players"].index(
@@ -122,7 +157,6 @@ def create_custom_game_conversation(game_manager: GameManager) -> ConversationHa
                 return await GameSummaryHandler(update, context)
 
         eliminated_id = int(query.data.split(":")[1])
-        game = context.user_data["current_game"]
         current_player_id = context.user_data["current_player_id"]
 
         game.eliminations[eliminated_id] = current_player_id
@@ -172,6 +206,8 @@ def create_custom_game_conversation(game_manager: GameManager) -> ConversationHa
                         f"Failed to send game summary to player {player_id}: {str(e)}"
                     )
 
+            # cleanup
+            _reset_user_data(context)
             return ConversationHandler.END
         elif text == "cancel":
             _reset_user_data(context)
@@ -248,4 +284,6 @@ def create_custom_game_conversation(game_manager: GameManager) -> ConversationHa
             ],
         },
         fallbacks=[CommandHandler("cancel", cancel_command)],
+        conversation_timeout=300,  # Timeout after 5 minutes of inactivity
+        per_user=True,
     )

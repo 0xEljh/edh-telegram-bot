@@ -4,6 +4,7 @@ from telegram.ext import ContextTypes
 
 from telegram_bot.models import ReplyStrategy
 from telegram_bot.models.game import GameManager, GameOutcome
+from telegram_bot.utils import format_name
 
 
 class PlayerSelectionReply(ReplyStrategy):
@@ -44,13 +45,15 @@ class PlayerSelectionReply(ReplyStrategy):
                     )
                 ]
             )
-        keyboard.append(
-            [
-                InlineKeyboardButton(
-                    "✅ Done Adding Players", callback_data="done_adding_players"
-                )
-            ]
-        )
+        if added_players:
+            keyboard.append(
+                [
+                    InlineKeyboardButton("🔄 Reset", callback_data="reset_players"),
+                    InlineKeyboardButton(
+                        "✅ Done", callback_data="done_adding_players"
+                    ),
+                ]
+            )
         return InlineKeyboardMarkup(keyboard)
 
     async def execute(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -62,13 +65,18 @@ class PlayerSelectionReply(ReplyStrategy):
 
         message = "Select players to add to the game:"
         if added_players:
-            current_players = [
+            current_player_names = [
                 self.game_manager.get_pod_player(pid, chat_id).name
                 for pid in added_players
             ]
             message = (
-                f"👥 Current players: {', '.join(current_players)}\n\n"
-                "Select more players or press Done:"
+                "👥 Current players:\n\n"
+                + "\n".join(
+                    f"👤 {format_name(name, max_len=20)}"
+                    for name in current_player_names
+                )
+                + "\n\n"
+                + "Select more players or press Done:"
             )
 
         await self._send_message(
@@ -137,14 +145,17 @@ class EliminationSelectionReply(ReplyStrategy):
         self.allow_winner_elimination = allow_winner_elimination
 
     def _create_keyboard(
-        self, available_players: List[int], current_player_id: int, pod_id: int
+        self,
+        available_players: List[int],
+        current_player_id: int,
+        pod_id: int,
+        eliminated_list: list,
     ) -> InlineKeyboardMarkup:
         """Create keyboard with available players for elimination."""
         keyboard = []
         for pid in available_players:
-            if self.allow_self_elimination:
-                if pid == current_player_id:
-                    continue
+            if not self.allow_self_elimination and pid == current_player_id:
+                continue
             player = self.game_manager.get_pod_player(pid, pod_id)
             keyboard.append(
                 [
@@ -154,9 +165,17 @@ class EliminationSelectionReply(ReplyStrategy):
                     )
                 ]
             )
-        keyboard.append(
-            [InlineKeyboardButton("✅ Done", callback_data="done_eliminations")]
+
+        actions = []
+        if eliminated_list:
+            actions.append(
+                InlineKeyboardButton("🔄 Reset", callback_data="reset_eliminations")
+            )
+        actions.append(
+            InlineKeyboardButton("✅ Done", callback_data="done_eliminations")
         )
+
+        keyboard.append(actions)
         return InlineKeyboardMarkup(keyboard)
 
     async def execute(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -178,9 +197,8 @@ class EliminationSelectionReply(ReplyStrategy):
             ]
             available_players = [p for p in available_players if p not in winners]
 
-        keyboard = self._create_keyboard(available_players, current_player_id, pod_id)
         eliminated_by_current = [
-            game.players[eid]
+            format_name(game.players[eid], max_len=20)
             for eid, eliminator_id in game.eliminations.items()
             if eliminator_id == current_player_id
         ]
@@ -189,6 +207,10 @@ class EliminationSelectionReply(ReplyStrategy):
             ""
             if not eliminated_by_current
             else "\n☠️ " + "\n☠️ ".join(eliminated_by_current)
+        )
+
+        keyboard = self._create_keyboard(
+            available_players, current_player_id, pod_id, eliminated_list
         )
 
         message = (

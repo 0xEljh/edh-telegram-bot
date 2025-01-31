@@ -257,7 +257,13 @@ class GameHistoryReply(ReplyStrategy):
                 text=message, parse_mode=self.parse_mode, reply_markup=keyboard
             )
         else:
-            await self._send_message(update, context, message, keyboard)
+            await self._send_message(
+                update,
+                context,
+                message,
+                keyboard,
+                update_message=True if update.callback_query else False,
+            )
 
 
 class PodHistoryReply(ReplyStrategy):
@@ -338,4 +344,10 @@ class PodHistoryReply(ReplyStrategy):
             message += self._format_game_entry(game) + "\n"
 
         keyboard = self._create_pagination_keyboard(total_games, current_page)
-        await self._send_message(update, context, message, keyboard)
+        await self._send_message(
+            update,
+            context,
+            message,
+            keyboard,
+            update_message=True if update.callback_query else False,
+        )
