@@ -24,12 +24,12 @@ def create_deletegame_handler(game_manager: GameManager) -> CommandHandler:
         if game is None:
             return await SimpleReplyStrategy(
                 "❌ Game not found. Copy a game reference by tapping on it in the history message and try again."
-            )
+            ).execute(update, context)
 
         result = game_manager.request_game_deletion(game_ref, user_id)
         status_map = {
             "not_found": "❌ Game not found",
-            "not_in_game": "❌ You're not part of this game",
+            "not_in_game": "❌ You're not part of this game; To prevent griefing, you may only delete games you were a part of. Ask a player to help delete it instead!",
             "already_requested": "⏳ You've already requested deletion on this game. It will be deleted if another player uses /delete on the same game.",
             "deleted": "✅ Game deleted successfully",
             "pending": "🗑️ Deletion request recorded! Need 1 more confirmation to delete the game: Another player must also use /delete on the same game.",

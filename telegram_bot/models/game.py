@@ -160,6 +160,7 @@ class Game:
     finalized: bool = False
     game_id: Optional[int] = None  # Default to None for auto-assignment
     deletion_reference: Optional[str] = None  # Reference for game deletion
+    description: Optional[str] = None
     _db_game: Optional[DBGame] = None
 
     def add_player(self, telegram_id: int, name: str):
@@ -192,7 +193,11 @@ class Game:
         try:
             # Create or get the game record
             if not self._db_game:
-                self._db_game = DBGame(pod_id=self.pod_id, created_at=self.created_at)
+                self._db_game = DBGame(
+                    pod_id=self.pod_id, 
+                    created_at=self.created_at, 
+                    description=self.description
+                    )
                 session.add(self._db_game)
                 session.flush()  # Get the game_id
 
@@ -280,6 +285,7 @@ class Game:
             game_id=db_game.game_id,
             deletion_reference=db_game.deletion_reference,
             finalized=True,
+            description=db_game.description,
             _db_game=db_game,
         )
 
@@ -311,6 +317,7 @@ class Game:
                 str(tid): str(eid) for tid, eid in self.eliminations.items()
             },
             "finalized": self.finalized,
+            "description": self.description,
             "deletion_reference": self.deletion_reference,
         }
 
@@ -330,6 +337,7 @@ class Game:
                 int(tid): int(eid) for tid, eid in data["eliminations"].items()
             },
             finalized=data["finalized"],
+            description=data.get("description"),
             deletion_reference=data.get("deletion_reference"),
         )
 

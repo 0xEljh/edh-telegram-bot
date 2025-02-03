@@ -54,6 +54,11 @@ def create_game_conversation(game_manager: GameManager) -> ConversationHandler:
 
         # Create game with pod_id
         game = game_manager.create_game(pod_id=chat_id)
+
+        if len(context.args) > 0:
+            description = " ".join(context.args)
+            game.description = description
+        
         context.user_data["current_game"] = game
         context.user_data["added_players"] = []
         context.user_data["eliminated_players"] = []

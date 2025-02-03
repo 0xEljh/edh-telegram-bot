@@ -22,7 +22,7 @@ def create_start_handler() -> CommandHandler:
         "   • You'll need to do this for each pod you're in. Your profile is unique to each pod.\n"
         "   • Your name and profile picture are also final for now.\n"
         "   • After your profile is created, use this to see your accumulated game statistics\n\n"
-        "🎮 /game - Record a new game\n"
+        "🎮 /game <description, optional> - Record a new game with an optional quick description\n"
         "   • If your game is atypical (e.g. multiple winners, draws, a player won through dying), use /customgame instead\n\n"
         "📊 /history - View past recorded games\n\n"
         "❌ /delete <reference> - Delete a game\n"
