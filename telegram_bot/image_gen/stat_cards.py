@@ -108,6 +108,34 @@ def draw_text_with_stroke(
     # Draw main text on top
     draw.text((x, y), text, font=font, fill=fill)
 
+def create_circular_avatar(avatar: Image.Image, size: int) -> Image.Image:
+    """
+    Process the given avatar image into a circular image of the given size.
+    This includes:
+      1. Converting to RGBA.
+      2. Cropping the image to a centered square.
+      3. Resizing to (size, size).
+      4. Applying a circular mask.
+    """
+    avatar = avatar.convert("RGBA")
+    width, height = avatar.size
+    min_dim = min(width, height)
+    left = (width - min_dim) // 2
+    top = (height - min_dim) // 2
+    right = left + min_dim
+    bottom = top + min_dim
+    square_avatar = avatar.crop((left, top, right, bottom))
+    square_avatar = square_avatar.resize((size, size), Image.Resampling.LANCZOS)
+    
+    # Create circular mask.
+    mask = Image.new("L", (size, size), 0)
+    mask_draw = ImageDraw.Draw(mask)
+    mask_draw.ellipse((0, 0, size, size), fill=255)
+    
+    # Apply mask to the square avatar.
+    square_avatar.putalpha(mask)
+    return square_avatar
+
 
 def create_stat_card(
     data: StatCardData, width: int = 400, height: int = 200
@@ -144,60 +172,22 @@ def create_stat_card(
     avatar_x = 20
     avatar_y = (height - avatar_size) // 2
 
-    def create_circular_mask(size):
-        mask = Image.new('L', (size, size), 0)
-        draw_mask = ImageDraw.Draw(mask)
-        draw_mask.ellipse((0, 0, size-1, size-1), fill=255)
-        return mask
-
-    # Create circular mask
-    mask = create_circular_mask(avatar_size)
-
     if data.avatar_path and os.path.exists(data.avatar_path):
         try:
-            # Load and resize avatar
             avatar = Image.open(data.avatar_path)
-            avatar = avatar.convert('RGBA')
-            
-            # Calculate resize dimensions to maintain aspect ratio
-            ratio = min(avatar_size / avatar.width, avatar_size / avatar.height)
-            new_size = (int(avatar.width * ratio), int(avatar.height * ratio))
-            
-            # Resize maintaining aspect ratio
-            avatar = avatar.resize(new_size, Image.Resampling.LANCZOS)
-            
-            # Create a blank square image
-            square_avatar = Image.new('RGBA', (avatar_size, avatar_size), (0, 0, 0, 0))
-            
-            # Calculate position to center the resized image
-            paste_x = (avatar_size - new_size[0]) // 2
-            paste_y = (avatar_size - new_size[1]) // 2
-            
-            # Paste the resized image onto the square canvas
-            square_avatar.paste(avatar, (paste_x, paste_y))
-            
-            # Apply circular mask
-            square_avatar.putalpha(mask)
-            
-            # Paste the circular avatar
-            card.paste(square_avatar, (avatar_x, avatar_y), square_avatar)
+            circular_avatar = create_circular_avatar(avatar, avatar_size)
+            card.paste(circular_avatar, (avatar_x, avatar_y), circular_avatar)
         except Exception as e:
-            # If avatar loading fails, draw placeholder circle
+            logger.error(f"Failed to load avatar: {e}")
             draw.ellipse(
                 [avatar_x, avatar_y, avatar_x + avatar_size - 1, avatar_y + avatar_size - 1],
                 fill=(128, 128, 128, 180),
             )
     else:
-        # try
-        try:
-            # use avatar_url/telegram photo
-            pass
-        except Exception:
-            # Draw placeholder circle
-            draw.ellipse(
-                [avatar_x, avatar_y, avatar_x + avatar_size - 1, avatar_y + avatar_size - 1],
-                fill=(128, 128, 128, 180),
-            )
+        draw.ellipse(
+            [avatar_x, avatar_y, avatar_x + avatar_size - 1, avatar_y + avatar_size - 1],
+            fill=(128, 128, 128, 180),
+        )
 
     # Text positions
     text_start_x = avatar_x + avatar_size + 20
@@ -342,60 +332,22 @@ def create_player_stat_card(
     avatar_x = 20
     avatar_y = 60
 
-    def create_circular_mask(size):
-        mask = Image.new('L', (size, size), 0)
-        draw_mask = ImageDraw.Draw(mask)
-        draw_mask.ellipse((0, 0, size-1, size-1), fill=255)
-        return mask
-
-    # Create circular mask
-    mask = create_circular_mask(avatar_size)
-
     if data.avatar_path and os.path.exists(data.avatar_path):
         try:
-            # Load and resize avatar
             avatar = Image.open(data.avatar_path)
-            avatar = avatar.convert('RGBA')
-            
-            # Calculate resize dimensions to maintain aspect ratio
-            ratio = min(avatar_size / avatar.width, avatar_size / avatar.height)
-            new_size = (int(avatar.width * ratio), int(avatar.height * ratio))
-            
-            # Resize maintaining aspect ratio
-            avatar = avatar.resize(new_size, Image.Resampling.LANCZOS)
-            
-            # Create a blank square image
-            square_avatar = Image.new('RGBA', (avatar_size, avatar_size), (0, 0, 0, 0))
-            
-            # Calculate position to center the resized image
-            paste_x = (avatar_size - new_size[0]) // 2
-            paste_y = (avatar_size - new_size[1]) // 2
-            
-            # Paste the resized image onto the square canvas
-            square_avatar.paste(avatar, (paste_x, paste_y))
-            
-            # Apply circular mask
-            square_avatar.putalpha(mask)
-            
-            # Paste the circular avatar
-            card.paste(square_avatar, (avatar_x, avatar_y), square_avatar)
+            circular_avatar = create_circular_avatar(avatar, avatar_size)
+            card.paste(circular_avatar, (avatar_x, avatar_y), circular_avatar)
         except Exception as e:
-            # If avatar loading fails, draw placeholder circle
+            logger.error(f"Failed to load avatar: {e}")
             draw.ellipse(
                 [avatar_x, avatar_y, avatar_x + avatar_size - 1, avatar_y + avatar_size - 1],
                 fill=(128, 128, 128, 180),
             )
     else:
-        # try
-        try:
-            # use avatar_url/telegram photo
-            pass
-        except Exception:
-            # Draw placeholder circle
-            draw.ellipse(
-                [avatar_x, avatar_y, avatar_x + avatar_size - 1, avatar_y + avatar_size - 1],
-                fill=(128, 128, 128, 180),
-            )
+        draw.ellipse(
+            [avatar_x, avatar_y, avatar_x + avatar_size - 1, avatar_y + avatar_size - 1],
+            fill=(128, 128, 128, 180),
+        )
 
     # 5. Define a helper to draw text with a stroke (outline)
     def draw_text_with_stroke(
